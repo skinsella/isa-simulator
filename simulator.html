@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Savings/Investment Account Simulator</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --uk: #1e40af;
+    --ca: #dc2626;
+    --se: #f59e0b;
+    --eu: #059669;
+    --tax: #6b7280;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --warn: #b45309;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    padding: 1.5rem; max-width: 1440px; margin: 0 auto;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); margin-bottom: 1rem; font-size: 0.95rem; }
+  .grid { display: grid; gap: 1.5rem; }
+  .grid-2 { grid-template-columns: 360px 1fr; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.25rem;
+  }
+  .card h2 { font-size: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 0.2rem; margin-top: 0.7rem; }
+  label:first-child { margin-top: 0; }
+  input[type=range] { width: 100%; cursor: pointer; }
+  .val { font-weight: 600; font-size: 0.95rem; float: right; color: var(--text); }
+  .section-title { font-size: 0.85rem; font-weight: 700; color: var(--text); margin-top: 1rem; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .charts-area { display: flex; flex-direction: column; gap: 1.5rem; }
+  .chart-box { position: relative; width: 100%; }
+  .chart-box canvas { width: 100% !important; }
+
+  .summary-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem; }
+  .summary-table th, .summary-table td { padding: 0.45rem 0.6rem; text-align: right; border-bottom: 1px solid var(--border); }
+  .summary-table th:first-child, .summary-table td:first-child { text-align: left; }
+  .summary-table th { font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot-uk { background: var(--uk); } .dot-ca { background: var(--ca); }
+  .dot-se { background: var(--se); } .dot-eu { background: var(--eu); }
+  .dot-tax { background: var(--tax); }
+
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+  .tab {
+    padding: 0.35rem 0.9rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); cursor: pointer; font-size: 0.82rem; color: var(--muted);
+    transition: all 0.15s;
+  }
+  .tab.active { background: var(--text); color: white; border-color: var(--text); }
+
+  .note { font-size: 0.78rem; color: var(--muted); margin-top: 0.75rem; line-height: 1.4; }
+  .note strong { color: var(--text); }
+
+  .model-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+  .model-card { padding: 0.75rem; border-radius: 8px; font-size: 0.8rem; border-left: 4px solid; }
+  .model-card h3 { font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .model-card.uk { border-color: var(--uk); background: #eff6ff; }
+  .model-card.ca { border-color: var(--ca); background: #fef2f2; }
+  .model-card.se { border-color: var(--se); background: #fffbeb; }
+  .model-card.eu { border-color: var(--eu); background: #ecfdf5; }
+
+  .disclaimer {
+    background: #fffbeb; border: 1px solid #f59e0b; border-radius: 8px;
+    padding: 0.6rem 0.9rem; font-size: 0.8rem; color: var(--warn); margin-bottom: 0.5rem;
+  }
+  .disclaimer strong { color: #92400e; }
+
+  .warning-banner {
+    background: #fef2f2; border: 1px solid #dc2626; border-radius: 6px;
+    padding: 0.4rem 0.7rem; font-size: 0.78rem; color: #dc2626;
+    margin-top: 0.3rem; display: none;
+  }
+  .warning-banner.visible { display: block; }
+
+  .toggle-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.7rem; }
+  .toggle-row label { margin: 0; }
+  .toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: #cbd5e1; border-radius: 22px; transition: 0.2s;
+  }
+  .toggle .slider::before {
+    content: ''; position: absolute; height: 16px; width: 16px;
+    left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s;
+  }
+  .toggle input:checked + .slider { background: var(--uk); }
+  .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+  .currency-note {
+    font-size: 0.72rem; color: var(--muted); font-style: italic;
+    margin-top: 0.3rem; line-height: 1.3;
+  }
+
+  @media (max-width: 900px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Lifetime Savings/Investment Account Simulator</h1>
+<p class="subtitle">Compare UK ISA, Canada TFSA, Sweden ISK, and EU proposed models against a standard taxable account</p>
+
+<div class="model-cards">
+  <div class="model-card uk">
+    <h3>UK ISA</h3>
+    Fixed annual allowance, fully tax-free growth. No carry-forward of unused room. Flexible withdrawals.
+  </div>
+  <div class="model-card ca">
+    <h3>Canada TFSA</h3>
+    Annual room accumulates &amp; carries forward. Withdrawals restore room the following year. Tax-free inside wrapper.
+  </div>
+  <div class="model-card se">
+    <h3>Sweden ISK</h3>
+    No contribution limit. Annual notional tax on average account value (govt rate + spread). No capital gains tracking.
+  </div>
+  <div class="model-card eu">
+    <div class="disclaimer"><strong>Illustrative only.</strong> No harmonised EU tax treatment exists. The parameters below are invented to explore a partial-exemption design space. Do not cite as an actual proposal.</div>
+    <h3>EU Proposed</h3>
+    Cross-border portable wrapper. Modelled here as partial exemption with a modest annual allowance.
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <!-- Controls -->
+  <div>
+    <div class="card">
+      <h2>Investor Profile</h2>
+
+      <label>Annual Contribution <span class="val" id="v_contrib">€6,000</span></label>
+      <input type="range" id="contrib" min="500" max="50000" step="500" value="6000">
+
+      <label>Contribution Growth Rate <span class="val" id="v_contribGrowth">0.0%</span></label>
+      <input type="range" id="contribGrowth" min="0" max="5" step="0.5" value="0">
+      <p class="currency-note">Annual increase in contributions (e.g. wage growth). 0% = flat contributions.</p>
+
+      <label>Investment Horizon <span class="val" id="v_horizon">30 years</span></label>
+      <input type="range" id="horizon" min="1" max="70" step="1" value="30">
+
+      <label>Starting Age <span class="val" id="v_startAge">25</span></label>
+      <input type="range" id="startAge" min="0" max="65" step="1" value="25">
+
+      <label>Nominal Annual Return <span class="val" id="v_return">6.0%</span></label>
+      <input type="range" id="annualReturn" min="0" max="15" step="0.5" value="6">
+
+      <label>Dividend Yield (within return) <span class="val" id="v_divYield">2.0%</span></label>
+      <input type="range" id="divYield" min="0" max="6" step="0.25" value="2">
+      <div class="warning-banner" id="divWarn">Dividend yield exceeds total return — capital growth will be negative.</div>
+
+      <label>Annual Management Fee <span class="val" id="v_fee">0.75%</span></label>
+      <input type="range" id="fee" min="0" max="3" step="0.05" value="0.75">
+
+      <label>Inflation Rate <span class="val" id="v_inflation">2.5%</span></label>
+      <input type="range" id="inflation" min="0" max="8" step="0.25" value="2.5">
+
+      <div class="toggle-row">
+        <label class="toggle"><input type="checkbox" id="realTerms"><span class="slider"></span></label>
+        <label style="font-weight:600; color:var(--text); cursor:pointer;" for="realTerms">Show in real (inflation-adjusted) terms</label>
+      </div>
+
+      <div class="section-title">Tax Environment (Irish defaults)</div>
+
+      <label>Marginal Income Tax + USC + PRSI <span class="val" id="v_incTax">52%</span></label>
+      <input type="range" id="incTax" min="0" max="60" step="1" value="52">
+      <p class="currency-note">Applied to dividend income on direct equity holdings.</p>
+
+      <label>Capital Gains Tax Rate <span class="val" id="v_cgt">33%</span></label>
+      <input type="range" id="cgt" min="0" max="50" step="1" value="33">
+      <p class="currency-note">Applied to realised capital gains on direct equities (not fund wrappers).</p>
+
+      <label>Annual CGT Exemption <span class="val" id="v_cgtExempt">€1,270</span></label>
+      <input type="range" id="cgtExempt" min="0" max="5000" step="10" value="1270">
+
+      <label>Exit Tax / Deemed Disposal Rate <span class="val" id="v_exitTax">41%</span></label>
+      <input type="range" id="exitTax" min="0" max="50" step="1" value="41">
+      <p class="currency-note">Applied to fund wrappers (dividends + gains). The taxable account uses this rate.</p>
+
+      <label>Deemed Disposal Period <span class="val" id="v_deemedYrs">8 years</span></label>
+      <input type="range" id="deemedYrs" min="1" max="15" step="1" value="8">
+
+      <div class="section-title">Account Parameters</div>
+
+      <label>UK ISA Annual Allowance <span class="val" id="v_isaAllow">€20,000</span></label>
+      <input type="range" id="isaAllow" min="1000" max="50000" step="1000" value="20000">
+
+      <label>Canada TFSA Annual Room <span class="val" id="v_tfsaRoom">€7,000</span></label>
+      <input type="range" id="tfsaRoom" min="1000" max="20000" step="500" value="7000">
+
+      <label>Sweden ISK Notional Rate (govt rate + spread) <span class="val" id="v_iskRate">3.5%</span></label>
+      <input type="range" id="iskRate" min="0.5" max="8" step="0.25" value="3.5">
+
+      <label>ISK Tax Rate on Notional Base <span class="val" id="v_iskTaxRate">30%</span></label>
+      <input type="range" id="iskTaxRate" min="10" max="50" step="1" value="30">
+
+      <label>EU Proposed Annual Allowance <span class="val" id="v_euAllow">€10,000</span></label>
+      <input type="range" id="euAllow" min="1000" max="50000" step="1000" value="10000">
+
+      <label>EU Gains Exemption % <span class="val" id="v_euExempt">50%</span></label>
+      <input type="range" id="euExempt" min="0" max="100" step="5" value="50">
+
+      <div class="section-title">Fiscal / Population Scaling</div>
+
+      <label>Participating Accounts <span class="val" id="v_popAccounts">1,000,000</span></label>
+      <input type="range" id="popAccounts" min="100000" max="3500000" step="50000" value="1000000">
+      <p class="currency-note">Number of active accounts nationwide. Ireland has ~3.8m adults and ~5.1m residents.</p>
+
+      <label>State Borrowing Rate (for NPV) <span class="val" id="v_stateRate">3.0%</span></label>
+      <input type="range" id="stateRate" min="0.5" max="6" step="0.25" value="3">
+
+      <label>Pension Offset Rate <span class="val" id="v_pensionOffset">0%</span></label>
+      <input type="range" id="pensionOffset" min="0" max="30" step="1" value="0">
+      <p class="currency-note">Assumed % reduction in future state pension cost per participating account, reflecting reduced dependency. 0% = no offset (conservative).</p>
+
+      <label>Annual State Pension Cost per Person <span class="val" id="v_pensionCost">€14,400</span></label>
+      <input type="range" id="pensionCost" min="5000" max="25000" step="200" value="14400">
+      <p class="currency-note">Current contributory state pension ~€14,400/yr. Used to estimate savings offset.</p>
+
+      <label>Pension Draw Years <span class="val" id="v_pensionYears">20</span></label>
+      <input type="range" id="pensionYears" min="5" max="35" step="1" value="20">
+
+      <div class="section-title">Withdrawal Modelling</div>
+      <label>Withdrawal per Year <span class="val" id="v_withdraw">€0</span></label>
+      <input type="range" id="withdraw" min="0" max="30000" step="500" value="0">
+
+      <label>Withdrawals Begin in Year <span class="val" id="v_withdrawStart">15</span></label>
+      <input type="range" id="withdrawStart" min="1" max="60" step="1" value="15">
+      <p class="currency-note">TFSA: withdrawn amounts restore contribution room the following year. ISA: withdrawals don't affect allowance (flexible ISA).</p>
+
+      <p class="currency-note" style="margin-top:1rem;">All values normalised to EUR for comparability. Real allowances: UK ISA = £20k, Canada TFSA = C$7k. Swedish ISK has no contribution limit.</p>
+    </div>
+  </div>
+
+  <!-- Charts & Results -->
+  <div class="charts-area">
+    <div class="card">
+      <div class="tabs">
+        <div class="tab active" data-chart="wealth">Net Wealth</div>
+        <div class="tab" data-chart="tax">Cumulative Tax</div>
+        <div class="tab" data-chart="annual">Annual Tax Cost</div>
+        <div class="tab" data-chart="contrib">Contributions In</div>
+      </div>
+      <div class="chart-box">
+        <canvas id="mainChart" height="320"></canvas>
+      </div>
+      <p class="note" id="chartNote"></p>
+    </div>
+
+    <div class="card">
+      <h2 id="summaryTitle">Summary at End of Horizon</h2>
+      <table class="summary-table" id="summaryTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Contributions</th>
+            <th>Gross Value</th>
+            <th>Total Tax</th>
+            <th>Net Value</th>
+            <th>Eff. Tax Rate</th>
+            <th>vs Taxable</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Fiscal Cost to Exchequer</h2>
+
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem; margin-top:0.5rem;">Per Investor</h3>
+      <table class="summary-table" id="fiscalTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Tax Foregone</th>
+            <th>NPV of Foregone</th>
+            <th>As % of Gross</th>
+            <th>Annualised</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem; margin-top:1.25rem;">Aggregate National Cost</h3>
+      <p class="note" style="margin-top:0; margin-bottom:0.5rem;">Scaled to <strong id="popLabel">1,000,000</strong> participating accounts.</p>
+      <table class="summary-table" id="aggFiscalTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Total Foregone</th>
+            <th>NPV Foregone</th>
+            <th>Annual Avg</th>
+            <th>Pension Offset</th>
+            <th>Net Fiscal Cost</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem; margin-top:1.25rem;">Comparison Anchors (annual average cost)</h3>
+      <p class="note" style="margin-top:0; margin-bottom:0.5rem;">Approximate Irish tax revenue benchmarks (2024 outturn).</p>
+      <table class="summary-table" id="anchorTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Annual Agg. Cost</th>
+            <th>% of CGT (€2.2bn)</th>
+            <th>% of Income Tax (€32bn)</th>
+            <th>% of Total Tax (€90bn)</th>
+            <th>% of SPC Spend (€9.5bn)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="note">CGT = Capital Gains Tax receipts. SPC = Social Protection (Contributory pensions). Revenue benchmarks are approximate 2024 figures and will change with economic conditions.</p>
+    </div>
+
+    <div class="card">
+      <h2>Design Trade-offs</h2>
+      <div id="tradeoffs" style="font-size:0.85rem; line-height:1.55;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => '€' + Math.round(n).toLocaleString('en-IE');
+const pct = n => (n * 100).toFixed(1) + '%';
+
+const sliders = [
+  ['contrib', 'v_contrib', v => `€${Number(v).toLocaleString()}`],
+  ['contribGrowth', 'v_contribGrowth', v => `${v}%`],
+  ['horizon', 'v_horizon', v => `${v} years`],
+  ['startAge', 'v_startAge', v => v],
+  ['annualReturn', 'v_return', v => `${v}%`],
+  ['divYield', 'v_divYield', v => `${v}%`],
+  ['fee', 'v_fee', v => `${v}%`],
+  ['inflation', 'v_inflation', v => `${v}%`],
+  ['incTax', 'v_incTax', v => `${v}%`],
+  ['cgt', 'v_cgt', v => `${v}%`],
+  ['cgtExempt', 'v_cgtExempt', v => `€${Number(v).toLocaleString()}`],
+  ['exitTax', 'v_exitTax', v => `${v}%`],
+  ['deemedYrs', 'v_deemedYrs', v => `${v} years`],
+  ['isaAllow', 'v_isaAllow', v => `€${Number(v).toLocaleString()}`],
+  ['tfsaRoom', 'v_tfsaRoom', v => `€${Number(v).toLocaleString()}`],
+  ['iskRate', 'v_iskRate', v => `${v}%`],
+  ['iskTaxRate', 'v_iskTaxRate', v => `${v}%`],
+  ['euAllow', 'v_euAllow', v => `€${Number(v).toLocaleString()}`],
+  ['euExempt', 'v_euExempt', v => `${v}%`],
+  ['withdraw', 'v_withdraw', v => `€${Number(v).toLocaleString()}`],
+  ['withdrawStart', 'v_withdrawStart', v => v],
+  ['popAccounts', 'v_popAccounts', v => Number(v).toLocaleString()],
+  ['stateRate', 'v_stateRate', v => `${v}%`],
+  ['pensionOffset', 'v_pensionOffset', v => `${v}%`],
+  ['pensionCost', 'v_pensionCost', v => `€${Number(v).toLocaleString()}`],
+  ['pensionYears', 'v_pensionYears', v => v],
+];
+
+sliders.forEach(([id, vid, formatter]) => {
+  const el = $(id);
+  $(vid).textContent = formatter(el.value);
+  el.addEventListener('input', () => { $(vid).textContent = formatter(el.value); runSim(); });
+});
+
+$('realTerms').addEventListener('change', runSim);
+
+// Tabs
+let activeChart = 'wealth';
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    activeChart = t.dataset.chart;
+    renderChart();
+  });
+});
+
+let chart = null;
+let simData = null;
+
+function val(id) { return parseFloat($(id).value); }
+
+function runSim() {
+  const baseContrib = val('contrib');
+  const contribGrowthRate = val('contribGrowth') / 100;
+  const horizon = val('horizon');
+  const nominalReturn = val('annualReturn') / 100;
+  const divY = Math.min(val('divYield') / 100, nominalReturn); // clamp
+  const capGrowth = nominalReturn - divY;
+  const fee = val('fee') / 100;
+  const inflationRate = val('inflation') / 100;
+  const showReal = $('realTerms').checked;
+  const incTax = val('incTax') / 100;
+  const cgtRate = val('cgt') / 100;
+  const cgtExempt = val('cgtExempt');
+  const exitTax = val('exitTax') / 100;
+  const deemedYrs = val('deemedYrs');
+  const isaAllow = val('isaAllow');
+  const tfsaAnnualRoom = val('tfsaRoom');
+  const iskNotional = val('iskRate') / 100;
+  const iskTaxRate = val('iskTaxRate') / 100;
+  const euAllow = val('euAllow');
+  const euExempt = val('euExempt') / 100;
+  const withdrawAmt = val('withdraw');
+  const withdrawStart = val('withdrawStart');
+
+  // Net return after fees (fees reduce gross return)
+  const r = nominalReturn - fee;
+  const netDivY = divY; // dividends not reduced by fee (fee is on total AUM)
+  const netCapGrowth = r - netDivY;
+
+  // Dividend yield warning
+  const divWarn = $('divWarn');
+  divWarn.classList.toggle('visible', val('divYield') / 100 > nominalReturn);
+
+  // --- TAXABLE (Irish exit-tax fund wrapper) ---
+  let taxBal = 0, taxCumTax = 0, taxCostBasis = 0;
+  let taxBalArr = [], taxCumTaxArr = [], taxAnnTaxArr = [], taxContribArr = [];
+  let taxTotalContrib = 0;
+
+  // --- UK ISA ---
+  let isaBal = 0, isaTotalContrib = 0;
+  let isaBalArr = [], isaCumTaxArr = [], isaAnnTaxArr = [], isaContribArr = [];
+
+  // --- Canada TFSA ---
+  let tfsaBal = 0, tfsaUnusedRoom = 0, tfsaTotalContrib = 0;
+  let tfsaBalArr = [], tfsaCumTaxArr = [], tfsaAnnTaxArr = [], tfsaContribArr = [];
+  // Track restored room from withdrawals
+  let tfsaRestoredRoom = 0;
+
+  // --- Sweden ISK ---
+  let iskBal = 0, iskCumTax = 0, iskTotalContrib = 0;
+  let iskBalArr = [], iskCumTaxArr = [], iskAnnTaxArr = [], iskContribArr = [];
+
+  // --- EU Proposed ---
+  let euBal = 0, euCumTax = 0, euCostBasis = 0, euTotalContrib = 0;
+  let euBalArr = [], euCumTaxArr = [], euAnnTaxArr = [], euContribArr = [];
+
+  // Pre-compute no-tax counterfactual for gross value (what each account would be worth with zero tax)
+  // We'll track this separately per account for accurate gross value
+  let taxGross = 0, isaGross = 0, tfsaGross = 0, iskGross = 0, euGross = 0;
+
+  for (let y = 1; y <= horizon; y++) {
+    // Contribution for this year (grows with contribGrowthRate)
+    const yearContrib = baseContrib * Math.pow(1 + contribGrowthRate, y - 1);
+    const doWithdraw = y >= withdrawStart;
+    const wAmt = doWithdraw ? withdrawAmt : 0;
+
+    // ========== TAXABLE (exit-tax fund) ==========
+    taxBal += yearContrib;
+    taxCostBasis += yearContrib;
+    taxTotalContrib += yearContrib;
+
+    // Growth (after fees)
+    let taxDiv = taxBal * netDivY;
+    let taxCap = taxBal * netCapGrowth;
+    // Dividends taxed at exit tax rate (fund wrapper)
+    let taxOnDiv = taxDiv * exitTax;
+    taxBal += taxDiv - taxOnDiv + taxCap;
+    let annualTaxable = taxOnDiv;
+
+    // Deemed disposal every N years
+    if (y % deemedYrs === 0) {
+      let gain = taxBal - taxCostBasis;
+      if (gain > 0) {
+        let deemedTax = gain * exitTax;
+        taxBal -= deemedTax;
+        annualTaxable += deemedTax;
+        // Cost basis resets to market value BEFORE tax deduction
+        // i.e. the deemed disposal is as if you sold at market value and rebought
+        taxCostBasis = taxBal + deemedTax; // market value = balance before tax was deducted
+      }
+    }
+
+    // Withdrawal
+    if (wAmt > 0 && taxBal > wAmt) {
+      taxBal -= wAmt;
+      // Proportional cost basis reduction
+      let proportion = wAmt / (taxBal + wAmt);
+      taxCostBasis *= (1 - proportion);
+    }
+
+    taxCumTax += annualTaxable;
+    taxBalArr.push(taxBal);
+    taxCumTaxArr.push(taxCumTax);
+    taxAnnTaxArr.push(annualTaxable);
+    taxContribArr.push(taxTotalContrib);
+
+    // Gross counterfactual (no tax path)
+    taxGross += yearContrib;
+    if (doWithdraw && taxGross > wAmt) taxGross -= wAmt;
+    taxGross *= (1 + r);
+
+    // ========== UK ISA ==========
+    let isaContrib = Math.min(yearContrib, isaAllow);
+    isaBal += isaContrib;
+    isaTotalContrib += isaContrib;
+    isaBal *= (1 + r); // tax free, but fees still apply
+    // Withdrawal (flexible ISA — doesn't affect allowance)
+    if (wAmt > 0 && isaBal > wAmt) isaBal -= wAmt;
+
+    isaBalArr.push(isaBal);
+    isaCumTaxArr.push(0);
+    isaAnnTaxArr.push(0);
+    isaContribArr.push(isaTotalContrib);
+
+    isaGross += isaContrib;
+    if (doWithdraw && isaGross > wAmt) isaGross -= wAmt;
+    isaGross *= (1 + r);
+
+    // ========== CANADA TFSA ==========
+    tfsaUnusedRoom += tfsaAnnualRoom + tfsaRestoredRoom;
+    tfsaRestoredRoom = 0; // applied, reset
+    let tfsaContrib = Math.min(yearContrib, tfsaUnusedRoom);
+    tfsaUnusedRoom -= tfsaContrib;
+    tfsaBal += tfsaContrib;
+    tfsaTotalContrib += tfsaContrib;
+    tfsaBal *= (1 + r); // tax free
+
+    // Withdrawal — restores room the following year
+    let tfsaWithdrawn = 0;
+    if (wAmt > 0 && tfsaBal > wAmt) {
+      tfsaBal -= wAmt;
+      tfsaWithdrawn = wAmt;
+    }
+    tfsaRestoredRoom = tfsaWithdrawn; // restored next year
+
+    tfsaBalArr.push(tfsaBal);
+    tfsaCumTaxArr.push(0);
+    tfsaAnnTaxArr.push(0);
+    tfsaContribArr.push(tfsaTotalContrib);
+
+    tfsaGross += tfsaContrib;
+    if (doWithdraw && tfsaGross > wAmt) tfsaGross -= wAmt;
+    tfsaGross *= (1 + r);
+
+    // ========== SWEDEN ISK ==========
+    let iskOpenBal = iskBal; // opening balance before contribution
+    iskBal += yearContrib;
+    iskTotalContrib += yearContrib;
+    let iskPostContrib = iskBal; // balance after contribution, before growth
+    iskBal *= (1 + r);
+    let iskCloseBal = iskBal;
+
+    // Tax: notional rate * tax rate * average of opening (post-contrib) and closing balance
+    let iskAvgBal = (iskPostContrib + iskCloseBal) / 2;
+    let iskAnnualTax = iskAvgBal * iskNotional * iskTaxRate;
+    iskBal -= iskAnnualTax;
+    iskCumTax += iskAnnualTax;
+
+    // Withdrawal
+    if (wAmt > 0 && iskBal > wAmt) iskBal -= wAmt;
+
+    iskBalArr.push(iskBal);
+    iskCumTaxArr.push(iskCumTax);
+    iskAnnTaxArr.push(iskAnnualTax);
+    iskContribArr.push(iskTotalContrib);
+
+    iskGross += yearContrib;
+    if (doWithdraw && iskGross > wAmt) iskGross -= wAmt;
+    iskGross *= (1 + r);
+
+    // ========== EU PROPOSED ==========
+    let euContrib = Math.min(yearContrib, euAllow);
+    euBal += euContrib;
+    euCostBasis += euContrib;
+    euTotalContrib += euContrib;
+
+    let euDiv = euBal * netDivY;
+    let euCap = euBal * netCapGrowth;
+    // Partial exemption on dividends
+    let euTaxOnDiv = euDiv * (1 - euExempt) * exitTax;
+    euBal += euDiv - euTaxOnDiv + euCap;
+    let euAnnTax = euTaxOnDiv;
+
+    // Deemed disposal with partial exemption
+    if (y % deemedYrs === 0) {
+      let euGain = euBal - euCostBasis;
+      if (euGain > 0) {
+        let euDeemedTax = euGain * (1 - euExempt) * exitTax;
+        euBal -= euDeemedTax;
+        euAnnTax += euDeemedTax;
+        euCostBasis = euBal + euDeemedTax; // reset to market value before tax
+      }
+    }
+
+    // Withdrawal
+    if (wAmt > 0 && euBal > wAmt) {
+      let proportion = wAmt / (euBal);
+      euBal -= wAmt;
+      euCostBasis *= (1 - proportion);
+    }
+
+    euCumTax += euAnnTax;
+    euBalArr.push(euBal);
+    euCumTaxArr.push(euCumTax);
+    euAnnTaxArr.push(euAnnTax);
+    euContribArr.push(euTotalContrib);
+
+    euGross += euContrib;
+    if (doWithdraw && euGross > wAmt) euGross -= wAmt;
+    euGross *= (1 + r);
+  }
+
+  // Terminal tax on final disposal (taxable)
+  let taxFinalGain = taxBal - taxCostBasis;
+  if (taxFinalGain > 0) {
+    let finalTax = taxFinalGain * exitTax;
+    taxBal -= finalTax;
+    taxCumTax += finalTax;
+    taxBalArr[horizon - 1] = taxBal;
+    taxCumTaxArr[horizon - 1] = taxCumTax;
+    taxAnnTaxArr[horizon - 1] += finalTax;
+  }
+
+  // Terminal tax on final disposal (EU)
+  let euFinalGain = euBal - euCostBasis;
+  if (euFinalGain > 0) {
+    let euFinalTax = euFinalGain * (1 - euExempt) * exitTax;
+    euBal -= euFinalTax;
+    euCumTax += euFinalTax;
+    euBalArr[horizon - 1] = euBal;
+    euCumTaxArr[horizon - 1] = euCumTax;
+    euAnnTaxArr[horizon - 1] += euFinalTax;
+  }
+
+  // Inflation deflators for real terms
+  const deflators = [];
+  for (let y = 1; y <= horizon; y++) {
+    deflators.push(Math.pow(1 + inflationRate, y));
+  }
+  function deflate(arr) {
+    if (!showReal) return arr;
+    return arr.map((v, i) => v / deflators[i]);
+  }
+
+  const labels = Array.from({length: horizon}, (_, i) => `Year ${i + 1}`);
+
+  // Compute annual foregone tax streams (nominal, for NPV)
+  // foregone = taxable annual tax - account annual tax
+  const rawAnnTaxArrays = {
+    taxable: taxAnnTaxArr,
+    isa: isaAnnTaxArr,
+    tfsa: tfsaAnnTaxArr,
+    isk: iskAnnTaxArr,
+    eu: euAnnTaxArr,
+  };
+
+  simData = {
+    labels,
+    horizon,
+    showReal,
+    rawAnnTaxArrays,
+    inflationRate,
+    series: [
+      { key: 'taxable', name: 'Taxable (Irish)', color: '#6b7280', dot: 'dot-tax',
+        bal: deflate(taxBalArr), cumTax: deflate(taxCumTaxArr), annTax: deflate(taxAnnTaxArr),
+        contrib: deflate(taxContribArr),
+        totalContrib: taxTotalContrib, grossVal: taxGross,
+        rawNetFinal: taxBal, rawTaxFinal: taxCumTax },
+      { key: 'isa', name: 'UK ISA', color: '#1e40af', dot: 'dot-uk',
+        bal: deflate(isaBalArr), cumTax: deflate(isaCumTaxArr), annTax: deflate(isaAnnTaxArr),
+        contrib: deflate(isaContribArr),
+        totalContrib: isaTotalContrib, grossVal: isaGross,
+        rawNetFinal: isaBal, rawTaxFinal: 0 },
+      { key: 'tfsa', name: 'Canada TFSA', color: '#dc2626', dot: 'dot-ca',
+        bal: deflate(tfsaBalArr), cumTax: deflate(tfsaCumTaxArr), annTax: deflate(tfsaAnnTaxArr),
+        contrib: deflate(tfsaContribArr),
+        totalContrib: tfsaTotalContrib, grossVal: tfsaGross,
+        rawNetFinal: tfsaBal, rawTaxFinal: 0 },
+      { key: 'isk', name: 'Sweden ISK', color: '#f59e0b', dot: 'dot-se',
+        bal: deflate(iskBalArr), cumTax: deflate(iskCumTaxArr), annTax: deflate(iskAnnTaxArr),
+        contrib: deflate(iskContribArr),
+        totalContrib: iskTotalContrib, grossVal: iskGross,
+        rawNetFinal: iskBal, rawTaxFinal: iskCumTax },
+      { key: 'eu', name: 'EU Proposed', color: '#059669', dot: 'dot-eu',
+        bal: deflate(euBalArr), cumTax: deflate(euCumTaxArr), annTax: deflate(euAnnTaxArr),
+        contrib: deflate(euContribArr),
+        totalContrib: euTotalContrib, grossVal: euGross,
+        rawNetFinal: euBal, rawTaxFinal: euCumTax },
+    ]
+  };
+
+  renderChart();
+  renderSummary();
+  renderFiscal();
+  renderTradeoffs();
+}
+
+function renderChart() {
+  if (!simData) return;
+  const { labels, series, showReal } = simData;
+  const realLabel = showReal ? ' (real)' : '';
+
+  let dataKey, yLabel, title;
+  if (activeChart === 'wealth') {
+    dataKey = 'bal'; yLabel = `Net Value${realLabel} (€)`; title = 'Net portfolio value after all taxes and fees';
+  } else if (activeChart === 'tax') {
+    dataKey = 'cumTax'; yLabel = `Cumulative Tax${realLabel} (€)`; title = 'Total tax paid over time';
+  } else if (activeChart === 'annual') {
+    dataKey = 'annTax'; yLabel = `Annual Tax${realLabel} (€)`; title = 'Tax cost each year';
+  } else {
+    dataKey = 'contrib'; yLabel = `Cumulative Contributions${realLabel} (€)`; title = 'Total contributions into each account (capped by allowance rules)';
+  }
+
+  $('chartNote').textContent = title + (showReal ? ' — inflation-adjusted' : ' — nominal');
+
+  const datasets = series.map(s => ({
+    label: s.name,
+    data: s[dataKey],
+    borderColor: s.color,
+    backgroundColor: s.color + '18',
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHitRadius: 8,
+    tension: 0.3,
+    fill: false,
+  }));
+
+  if (chart) chart.destroy();
+  chart = new Chart($('mainChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: €${Math.round(ctx.parsed.y).toLocaleString()}`
+          }
+        },
+        legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 12 } } }
+      },
+      scales: {
+        y: {
+          ticks: { callback: v => '€' + (v >= 1000000 ? (v/1000000).toFixed(1) + 'M' : v >= 1000 ? (v/1000).toFixed(0) + 'k' : v) },
+          title: { display: true, text: yLabel }
+        },
+        x: {
+          ticks: { maxTicksLimit: 15 },
+          title: { display: true, text: 'Year' }
+        }
+      }
+    }
+  });
+}
+
+function renderSummary() {
+  const { series, horizon, showReal } = simData;
+  const deflator = showReal ? Math.pow(1 + val('inflation') / 100, horizon) : 1;
+  $('summaryTitle').textContent = `Summary at End of Horizon${showReal ? ' (real terms)' : ''}`;
+
+  const taxableNet = series[0].bal[horizon - 1];
+  const tbody = $('summaryTable').querySelector('tbody');
+  tbody.innerHTML = series.map(s => {
+    const net = s.bal[horizon - 1];
+    const tax = s.cumTax[horizon - 1];
+    const contrib = s.contrib[horizon - 1];
+    const gross = s.grossVal / deflator;
+    const grossGain = gross - contrib;
+    const effRate = grossGain > 0 ? tax / grossGain : 0;
+    const advantage = net - taxableNet;
+    return `<tr>
+      <td><span class="dot ${s.dot}"></span>${s.name}</td>
+      <td>${fmt(contrib)}</td>
+      <td>${fmt(gross)}</td>
+      <td>${fmt(tax)}</td>
+      <td><strong>${fmt(net)}</strong></td>
+      <td>${pct(effRate)}</td>
+      <td style="color:${advantage >= 0 ? '#059669' : '#dc2626'}">${advantage >= 0 ? '+' : ''}${fmt(advantage)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderFiscal() {
+  const { series, horizon, showReal, rawAnnTaxArrays, inflationRate } = simData;
+  const deflator = showReal ? Math.pow(1 + inflationRate, horizon) : 1;
+  const stateRate = val('stateRate') / 100;
+  const popAccounts = val('popAccounts');
+  const pensionOffset = val('pensionOffset') / 100;
+  const pensionCost = val('pensionCost');
+  const pensionYears = val('pensionYears');
+
+  const taxableAnnTax = rawAnnTaxArrays.taxable;
+
+  // Irish tax revenue benchmarks (approximate 2024)
+  const CGT_REVENUE = 2.2e9;
+  const INCOME_TAX_REVENUE = 32e9;
+  const TOTAL_TAX_REVENUE = 90e9;
+  const SPC_SPEND = 9.5e9; // social protection contributory pensions
+
+  // NPV helper: discount annual foregone stream at state borrowing rate
+  function computeNPV(annForegoneStream) {
+    let npv = 0;
+    for (let y = 0; y < annForegoneStream.length; y++) {
+      npv += annForegoneStream[y] / Math.pow(1 + stateRate, y + 1);
+    }
+    return npv;
+  }
+
+  // Pension savings offset per account over the horizon
+  // If the account reduces pension dependency by X%, the state saves X% * annual pension * pension years
+  // NPV that offset at the state borrowing rate, starting at end of horizon
+  function computePensionOffset() {
+    let pvOffset = 0;
+    const pensionStart = horizon; // pension payments start after the investment horizon
+    for (let y = 0; y < pensionYears; y++) {
+      const annualSaving = pensionCost * pensionOffset;
+      pvOffset += annualSaving / Math.pow(1 + stateRate, pensionStart + y + 1);
+    }
+    return pvOffset;
+  }
+
+  const pensionOffsetPerAccount = computePensionOffset();
+
+  // Build per-investor foregone streams for each account type
+  const accountKeys = ['isa', 'tfsa', 'isk', 'eu'];
+  const fiscalData = series.slice(1).map((s, idx) => {
+    const key = accountKeys[idx];
+    const annTaxArr = rawAnnTaxArrays[key];
+
+    // Annual foregone = taxable tax - this account's tax (nominal)
+    const annForegone = taxableAnnTax.map((t, i) => t - annTaxArr[i]);
+    const totalForegone = annForegone.reduce((a, b) => a + b, 0);
+    const npvForegone = computeNPV(annForegone);
+    const annualised = totalForegone / horizon;
+
+    // Deflate for display if in real terms
+    const displayForegone = showReal ? totalForegone / deflator : totalForegone;
+    const displayNPV = npvForegone; // NPV is already in year-0 terms
+    const displayAnnualised = showReal ? annualised / deflator : annualised;
+
+    const gross = s.grossVal / deflator;
+
+    return {
+      series: s,
+      totalForegone: displayForegone,
+      npvForegone: displayNPV,
+      pctGross: gross > 0 ? displayForegone / gross : 0,
+      annualised: displayAnnualised,
+      // Raw nominal for aggregate
+      rawTotalForegone: totalForegone,
+      rawNPV: npvForegone,
+      rawAnnualised: annualised,
+    };
+  });
+
+  // --- Per Investor Table ---
+  $('fiscalTable').querySelector('tbody').innerHTML = fiscalData.map(d => `<tr>
+    <td><span class="dot ${d.series.dot}"></span>${d.series.name}</td>
+    <td>${fmt(d.totalForegone)}</td>
+    <td>${fmt(d.npvForegone)}</td>
+    <td>${pct(d.pctGross)}</td>
+    <td>${fmt(d.annualised)}/yr</td>
+  </tr>`).join('');
+
+  // --- Aggregate National Table ---
+  $('popLabel').textContent = popAccounts.toLocaleString();
+  const fmtBn = n => {
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return (n < 0 ? '-' : '') + '€' + (abs / 1e9).toFixed(2) + 'bn';
+    if (abs >= 1e6) return (n < 0 ? '-' : '') + '€' + (abs / 1e6).toFixed(0) + 'm';
+    return fmt(n);
+  };
+
+  const totalPensionOffsetAgg = pensionOffsetPerAccount * popAccounts;
+
+  $('aggFiscalTable').querySelector('tbody').innerHTML = fiscalData.map(d => {
+    const aggTotal = d.rawTotalForegone * popAccounts;
+    const aggNPV = d.rawNPV * popAccounts;
+    const aggAnnual = d.rawAnnualised * popAccounts;
+    const netCost = aggNPV - totalPensionOffsetAgg;
+    return `<tr>
+      <td><span class="dot ${d.series.dot}"></span>${d.series.name}</td>
+      <td>${fmtBn(aggTotal)}</td>
+      <td>${fmtBn(aggNPV)}</td>
+      <td>${fmtBn(aggAnnual)}/yr</td>
+      <td style="color:#059669">${fmtBn(-totalPensionOffsetAgg)}</td>
+      <td style="color:${netCost > 0 ? '#dc2626' : '#059669'}"><strong>${fmtBn(netCost)}</strong></td>
+    </tr>`;
+  }).join('');
+
+  // --- Comparison Anchors Table ---
+  $('anchorTable').querySelector('tbody').innerHTML = fiscalData.map(d => {
+    const aggAnnual = d.rawAnnualised * popAccounts;
+    return `<tr>
+      <td><span class="dot ${d.series.dot}"></span>${d.series.name}</td>
+      <td>${fmtBn(aggAnnual)}/yr</td>
+      <td>${pct(aggAnnual / CGT_REVENUE)}</td>
+      <td>${pct(aggAnnual / INCOME_TAX_REVENUE)}</td>
+      <td>${pct(aggAnnual / TOTAL_TAX_REVENUE)}</td>
+      <td>${pct(aggAnnual / SPC_SPEND)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderTradeoffs() {
+  const { series, horizon, showReal } = simData;
+  const taxableNet = series[0].bal[horizon - 1];
+  const best = series.reduce((a, b) => b.bal[horizon-1] > a.bal[horizon-1] ? b : a);
+  const iskTax = series[3].cumTax[horizon - 1];
+  const taxableTax = series[0].cumTax[horizon - 1];
+  const termsLabel = showReal ? ' (real terms)' : '';
+
+  const r = val('annualReturn');
+  const feeVal = val('fee');
+  const iskRate = val('iskRate');
+  const iskEffective = (iskRate * val('iskTaxRate') / 100);
+  const withdrawAmt = val('withdraw');
+
+  let html = `<p><strong>Best outcome for the investor${termsLabel}:</strong> ${best.name} produces the highest net wealth of ${fmt(best.bal[horizon-1])}.</p>`;
+
+  // Fee impact
+  if (feeVal > 0) {
+    const noFeeBal = series[0].totalContrib * Math.pow(1 + val('annualReturn')/100, horizon/2); // rough
+    html += `<p><strong>Fee drag:</strong> At ${feeVal}% annual fees, the cumulative cost over ${horizon} years is substantial. Fees compound against the investor just as returns compound for them.</p>`;
+  }
+
+  html += `<p><strong>ISK fairness note:</strong> The ISK levies tax even when actual returns are below the notional rate (${iskRate}%). `;
+  if (r - feeVal > iskRate) {
+    html += `At ${(r - feeVal).toFixed(1)}% net return vs ${iskRate}% notional, the ISK is favourable—effective annual drag is only ~${iskEffective.toFixed(2)}% vs higher realised-gain taxes.</p>`;
+  } else {
+    html += `At ${(r - feeVal).toFixed(1)}% net return vs ${iskRate}% notional, the investor is <em>overtaxed</em> relative to actual gains.</p>`;
+  }
+
+  html += `<p><strong>Exchequer perspective:</strong> The ISA and TFSA cost the state the most in foregone revenue (${fmt(taxableTax - series[1].cumTax[horizon-1])} and ${fmt(taxableTax - series[2].cumTax[horizon-1])} respectively). The ISK maintains a steady revenue stream (${fmt(iskTax)} total), making it the most fiscally predictable.</p>`;
+
+  html += `<p><strong>Distributional concern:</strong> At a starting contribution of €${val('contrib').toLocaleString()}/yr, the ISA and TFSA disproportionately benefit higher-income households who can max out allowances. The ISK's unlimited contributions but steady tax drag partially mitigate this, though larger portfolios still capture more benefit in absolute terms.</p>`;
+
+  // Withdrawal insight
+  if (withdrawAmt > 0) {
+    html += `<p><strong>Withdrawal dynamics:</strong> With €${withdrawAmt.toLocaleString()}/yr withdrawals from year ${val('withdrawStart')}, the TFSA's room-restoration feature means withdrawn amounts become available as new contribution room the following year. The ISA's flexible withdrawal model doesn't reduce allowance. The taxable and EU accounts suffer from cost-basis erosion on withdrawal.</p>`;
+  }
+
+  const endAge = val('startAge') + horizon;
+  html += `<p><strong>Lifetime framing:</strong> Starting at age ${val('startAge')} with a ${horizon}-year horizon means the account runs to age ${endAge}. `;
+  if (val('startAge') === 0) {
+    html += `A birth-to-${endAge} account with TFSA-style carry-forward accumulates ${horizon} years of unused room during childhood/early adulthood, creating a powerful catch-up mechanism when earnings begin.</p>`;
+  } else {
+    html += `A birth-to-death account (0–80+) with TFSA-style carry-forward would accumulate substantial unused room in early years, creating a powerful mid-life catch-up mechanism.</p>`;
+  }
+
+  if (showReal) {
+    html += `<p><strong>Real terms note:</strong> All figures above are deflated by ${val('inflation')}% annual inflation. Nominal balances would be ${pct(Math.pow(1 + val('inflation')/100, horizon) - 1)} higher at the end of the horizon.</p>`;
+  }
+
+  $('tradeoffs').innerHTML = html;
+}
+
+// Initial run
+runSim();
+</script>
+</body>
+</html>
