@@ -1,5 +1,191 @@
 <!DOCTYPE html>
-<html>
-<head><meta http-equiv="refresh" content="0;url=simulator.html"></head>
-<body><a href="simulator.html">Redirect to simulator</a></body>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lifetime Savings/Investment Account Simulator</title>
+<meta name="description" content="Interactive comparison of how Irish savers would fare under UK ISA, Canadian TFSA, Swedish ISK, Norwegian shielding-deduction, and an illustrative EU wrapper, against the current 41% fund exit-tax baseline.">
+<meta property="og:title" content="Lifetime SIA Simulator">
+<meta property="og:description" content="Compare UK ISA, Canada TFSA, Sweden ISK, Norway shielding-deduction, and EU proposed models against Irish taxable treatment.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://skinsella.github.io/isa-simulator/">
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"
+        integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt"
+        crossorigin="anonymous"></script>
+</head>
+<body>
+
+<h1>Lifetime Savings/Investment Account Simulator</h1>
+<p class="subtitle">Compare UK ISA, Canada TFSA, Sweden ISK, Norway shielding-deduction, and an illustrative EU wrapper against the Irish taxable baseline.</p>
+
+<div class="model-cards">
+  <div class="model-card uk">
+    <h3>UK ISA</h3>
+    Fixed annual allowance, fully tax-free growth. No carry-forward of unused allowance across tax years. <em>Flexible ISA</em> withdrawals only restore room within the same tax year — not modelled here.
+  </div>
+  <div class="model-card ca">
+    <h3>Canada TFSA</h3>
+    Annual room accumulates &amp; carries forward across years. Withdrawals restore room the following calendar year. Tax-free inside wrapper.
+  </div>
+  <div class="model-card se">
+    <h3>Sweden ISK</h3>
+    No contribution limit. Annual notional tax on the kapitalunderlag (sum of 4 quarter-opening balances + deposits, divided by 4). From 2025 a SEK 150k (~€13k) threshold is tax-free.
+  </div>
+  <div class="model-card no">
+    <h3>Norway shielding</h3>
+    Tax-free <em>skjermingsfradrag</em> compounds annually on cost basis at the shielding rate. Only realised gains <strong>above</strong> accumulated shielding are taxed (at standard CGT/income rate). Unused shielding carries forward.
+  </div>
+  <div class="model-card eu">
+    <div class="disclaimer"><strong>Illustrative only.</strong> No harmonised EU tax treatment exists. Parameters below are invented to explore a partial-exemption design space — do not cite as a real proposal.</div>
+    <h3>EU proposed</h3>
+    Cross-border portable wrapper, modelled here as partial-exemption with annual allowance.
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <!-- Controls -->
+  <div>
+    <div class="card">
+      <h2>Investor Profile</h2>
+      <div class="presets">
+        <span style="font-size:0.78rem; color:var(--muted); align-self:center; margin-right:0.2rem;">Presets:</span>
+        <button class="preset-btn" data-preset="young-low">Young, low earner</button>
+        <button class="preset-btn" data-preset="mid-median">Mid-career, median</button>
+        <button class="preset-btn" data-preset="high-earner">High earner</button>
+        <button class="preset-btn" data-preset="lifetime">Birth-to-retirement</button>
+        <button class="action-btn" id="resetBtn" title="Reset all inputs to defaults">Reset</button>
+      </div>
+
+      <div id="controls"></div>
+
+      <p class="currency-note" style="margin-top:1rem;">All values normalised to EUR. Real allowances: UK ISA = £20k, Canada TFSA = C$7k. Norway shielding rate set annually by the Ministry of Finance. Sweden ISK has no contribution limit.</p>
+
+      <div class="share-row">
+        <button class="action-btn" id="shareBtn">Copy link to this configuration</button>
+        <button class="action-btn" id="csvBtn">Download CSV</button>
+        <button class="action-btn" id="citeBtn">Cite this</button>
+        <span class="share-msg" id="shareMsg"></span>
+      </div>
+      <div id="citeBox" class="cite-box" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Charts & Results -->
+  <div class="charts-area">
+    <div class="card">
+      <div class="tabs" role="tablist" aria-label="Chart view">
+        <button class="tab" role="tab" aria-selected="true"  data-chart="wealth">Net Wealth</button>
+        <button class="tab" role="tab" aria-selected="false" data-chart="tax">Cumulative Tax</button>
+        <button class="tab" role="tab" aria-selected="false" data-chart="annual">Annual Tax Cost</button>
+        <button class="tab" role="tab" aria-selected="false" data-chart="contrib">Contributions In</button>
+      </div>
+      <div class="chart-box" role="tabpanel">
+        <canvas id="mainChart" height="320" aria-label="Wrapper comparison chart"></canvas>
+      </div>
+      <p class="note" id="chartNote"></p>
+    </div>
+
+    <div class="card">
+      <h2 id="summaryTitle">Summary at end of horizon</h2>
+      <div class="table-scroll">
+      <table class="summary-table" id="summaryTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Contributions</th>
+            <th>Gross value</th>
+            <th>Total tax</th>
+            <th>Net value</th>
+            <th>Eff. tax rate</th>
+            <th>vs Taxable</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Fiscal cost to Exchequer</h2>
+
+      <h3>Per investor</h3>
+      <div class="table-scroll">
+      <table class="summary-table" id="fiscalTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Tax foregone</th>
+            <th>NPV of foregone</th>
+            <th>As % of gross</th>
+            <th>Annualised</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      </div>
+
+      <h3>Aggregate national cost</h3>
+      <p class="note" style="margin-top:0; margin-bottom:0.5rem;">Scaled to <strong id="popLabel">1,000,000</strong> accounts. <strong>Mature-scheme estimate</strong> — assumes all accounts have run for the full horizon. Year-1 cost of a new scheme would be far lower; see year-1 column below.</p>
+      <div class="table-scroll">
+      <table class="summary-table" id="aggFiscalTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>NPV foregone</th>
+            <th>Annual avg</th>
+            <th>Year-1 cost</th>
+            <th>Final-year cost</th>
+            <th>Pension offset</th>
+            <th>Net fiscal cost</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      </div>
+
+      <h3>Comparison anchors</h3>
+      <p class="note" style="margin-top:0; margin-bottom:0.5rem;">Annual aggregate cost vs projected Irish revenue benchmarks. Year-1 cost shown against current benchmarks; final-year cost against projected benchmarks grown at nominal GDP rate.</p>
+      <div class="table-scroll">
+      <table class="summary-table" id="anchorTable">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Year</th>
+            <th>Annual cost</th>
+            <th>% of CGT</th>
+            <th>% of Income Tax</th>
+            <th>% of Total Tax</th>
+            <th>% of SPC Spend</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      </div>
+      <p class="note" id="anchorSources"></p>
+    </div>
+
+    <div class="card">
+      <h2>Sensitivity — top drivers</h2>
+      <p class="note" style="margin-top:0; margin-bottom:0.6rem;">Each numeric input perturbed by ±10%; bar shows resulting change in the best wrapper's net wealth at horizon. Bigger bar = more sensitive.</p>
+      <div id="tornado"></div>
+    </div>
+
+    <div class="card">
+      <h2>Design trade-offs</h2>
+      <div id="tradeoffs" style="font-size:0.85rem; line-height:1.55;"></div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <span id="footerVersion"></span> ·
+  <a href="https://github.com/skinsella/isa-simulator">source on GitHub</a> ·
+  <a href="METHODS.md">methodology</a> ·
+  MIT license
+</footer>
+
+<script type="module" src="js/ui.js"></script>
+</body>
 </html>
