@@ -81,9 +81,10 @@
         <button class="tab" role="tab" aria-selected="false" data-chart="annual">Annual Tax Cost</button>
         <button class="tab" role="tab" aria-selected="false" data-chart="contrib">Contributions In</button>
       </div>
-      <div class="chart-box" role="tabpanel">
-        <canvas id="mainChart" height="320" aria-label="Wrapper comparison chart"></canvas>
-      </div>
+      <figure class="chart-box" role="tabpanel" style="margin:0;">
+        <canvas id="mainChart" height="320" aria-describedby="chartCaption"></canvas>
+        <figcaption id="chartCaption" class="sr-only"></figcaption>
+      </figure>
       <p class="note" id="chartNote"></p>
     </div>
 

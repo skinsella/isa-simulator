@@ -437,8 +437,11 @@ export function normaliseParams(raw) {
   };
 }
 
-export function simulateAll(rawParams) {
-  const p = normaliseParams(rawParams);
+// Optional `overrides` merges into rawParams before normalisation. Useful
+// for sensitivity analysis without mutating shared state.
+export function simulateAll(rawParams, overrides = null) {
+  const merged = overrides ? { ...rawParams, ...overrides } : rawParams;
+  const p = normaliseParams(merged);
   return {
     taxable: simTaxable(p),
     isa:     simISA(p),

@@ -247,6 +247,41 @@ Revenue / DSP publications before quoting figures.
 
 ## Change log
 
+### v1.2.0 — 2026-05-24
+- **Refactor:** `INPUTS` schema converted from positional tuples to named-field
+  objects and moved to `config.js`. Adding a slider is now a one-line edit
+  with no risk of column-shift bugs.
+- **Fix:** `renderTradeoffs` and `renderFiscal` now look up wrappers by key
+  (`byKey.isa`, `byKey.taxable`, …) instead of by position in the series
+  array. Reordering `WRAPPERS` no longer silently misattributes numbers in
+  the prose or fiscal tables.
+- **Fix:** Money formatter now produces `-€500` instead of `€-500`. Affects
+  the "vs Taxable" column whenever a wrapper underperforms the baseline.
+- **Fix:** Diff badge now shows on toggle and radio controls too
+  (`taxMode`, `realTerms`, `pensionMeansTested`, `noUseIncomeTax`).
+- **Fix:** Number inputs are clamped to `[min, max]` on entry.
+- **Fix:** `loadFromHash()` warns on unknown / malformed keys instead of
+  silently dropping them.
+- **Perf:** Slider/number events now coalesce via `requestAnimationFrame`.
+  At most one full sim/render cycle per animation frame, regardless of how
+  fast the user drags.
+- **Perf:** Chart instance is reused across updates (`chart.update('none')`)
+  instead of being destroyed and recreated. Removes the brief flicker on
+  every slider tick.
+- **Perf / safety:** Sensitivity tornado now passes overrides to
+  `simulateAll(state, { [id]: value })` instead of temporarily mutating
+  global state. Eliminates a class of subtle race conditions.
+- **UX:** Share URL only includes parameters that differ from defaults —
+  share links are ~⅓ the length they were in v1.1.
+- **UX:** Sensitivity-tornado input list is now auto-derived from the
+  `INPUTS` schema (`sensitivity: true` flag) instead of being hardcoded.
+  Adding a new sensitivity-relevant parameter requires no UI change.
+- **A11y:** Chart canvas has a `<figcaption>` description for screen
+  readers. Tab buttons implement the full WAI-ARIA tab-list keyboard
+  pattern (Left/Right/Home/End).
+- **A11y:** CSV export now quotes fields containing commas or quotes
+  (future-proofing — current wrapper names trigger no quoting).
+
 ### v1.1.0 — 2026-05-24
 - **Added Norwegian shielding-deduction model** (per Sinn's policy note).
 - **Fix:** Irish fund wrapper no longer double-taxes dividends. Annual

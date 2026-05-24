@@ -1,18 +1,21 @@
 // UI layer — DOM rendering, chart, share-URL, sensitivity, CSV export.
-// Imports pure functions from sim.js and config from config.js.
+// All simulation logic lives in sim.js; all schema/defaults in config.js.
 
 import {
-  simulateAll, normaliseParams, computeNPV, cumulativeReal,
+  simulateAll, computeNPV, cumulativeReal,
 } from './sim.js';
 import {
   MODEL_VERSION, MODEL_DATE, REVENUE_BENCHMARKS,
   DEFAULTS, PRESETS, WRAPPERS,
+  INPUTS, INPUT_BY_ID, SENSITIVITY_INPUTS,
 } from './config.js';
 
 // ---------------- formatting helpers ----------------
 
 const $ = id => document.getElementById(id);
-const fmt = n => '€' + Math.round(n).toLocaleString('en-IE');
+// Money formatter that puts the minus sign before the currency symbol.
+// Previous version produced "€-500" — wrong typographic convention.
+const fmt = n => (n < 0 ? '-€' : '€') + Math.round(Math.abs(n)).toLocaleString('en-IE');
 const pct = n => (n * 100).toFixed(1) + '%';
 const fmtBn = n => {
   const a = Math.abs(n), s = n < 0 ? '-' : '';
@@ -21,64 +24,15 @@ const fmtBn = n => {
   if (a >= 1e3) return s + '€' + (a/1e3).toFixed(0) + 'k';
   return fmt(n);
 };
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
-// ---------------- input definitions ----------------
-//
-// One declarative list controls slider rendering, value-display formatting,
-// step sizes, ranges, and which section each control sits in. Adding a new
-// input means adding one row here.
-
-const eurFmt = v => `€${Number(v).toLocaleString()}`;
-const pctFmt = v => `${v}%`;
-const yrFmt  = v => `${v} years`;
-const numFmt = v => `${v}`;
-
-const INPUTS = [
-  // section, id, label, min, max, step, displayFormat
-  ['Profile',         'contrib',        'Annual contribution',       500,    50000, 500,  eurFmt],
-  ['Profile',         'contribGrowth',  'Contribution growth rate',  0,      5,     0.5,  pctFmt, 'Annual increase in contributions (e.g. wage growth). 0% = flat.'],
-  ['Profile',         'horizon',        'Investment horizon',        1,      70,    1,    yrFmt],
-  ['Profile',         'startAge',       'Starting age',              0,      65,    1,    numFmt],
-  ['Profile',         'annualReturn',   'Nominal annual return',     0,      15,    0.5,  pctFmt],
-  ['Profile',         'divYield',       'Dividend yield (within return)', 0,  6, 0.25, pctFmt],
-  ['Profile',         'fee',            'Annual management fee',     0,      3,     0.05, pctFmt],
-  ['Profile',         'inflation',      'Inflation rate',            0,      8,     0.25, pctFmt],
-
-  ['Tax — Fund',      'exitTax',        'Exit tax / deemed-disposal rate', 0, 50, 1, pctFmt, null, p => p.taxMode === 'fund'],
-  ['Tax — Fund',      'deemedYrs',      'Deemed-disposal period',    1,      15,    1,    yrFmt,  null, p => p.taxMode === 'fund'],
-  ['Tax — Equity',    'incTax',         'Marginal income tax + USC + PRSI', 0, 60, 1, pctFmt, 'Applied to dividend income.', p => p.taxMode === 'equity'],
-  ['Tax — Equity',    'cgt',            'Capital gains tax rate',    0,      50,    1,    pctFmt, null, p => p.taxMode === 'equity'],
-  ['Tax — Equity',    'cgtExempt',      'Annual CGT exemption',      0,      5000,  10,   eurFmt, null, p => p.taxMode === 'equity'],
-
-  ['Wrapper',         'isaAllow',       'UK ISA annual allowance',   1000,   50000, 1000, eurFmt],
-  ['Wrapper',         'tfsaRoom',       'Canada TFSA annual room',   1000,   20000, 500,  eurFmt],
-  ['Wrapper',         'iskRate',        'Sweden ISK notional rate (govt rate + spread)', 0.5, 8, 0.25, pctFmt],
-  ['Wrapper',         'iskTaxRate',     'ISK tax rate on notional base', 10, 50,    1,    pctFmt],
-  ['Wrapper',         'iskThreshold',   'ISK tax-free threshold (2025+)', 0, 30000, 500, eurFmt],
-  ['Wrapper',         'noShieldRate',   'Norway shielding rate',     0,      8,     0.25, pctFmt, 'Annual tax-free deduction = rate × (basis + carried shielding).'],
-  ['Wrapper',         'noCgtRate',      'Norway CGT/income rate on excess', 0, 50, 1, pctFmt],
-  ['Wrapper',         'euAllow',        'EU proposed annual allowance', 1000, 50000, 1000, eurFmt],
-  ['Wrapper',         'euExempt',       'EU gains exemption %',      0,      100,   5,    pctFmt],
-
-  ['Fiscal',          'popAccounts',    'Participating accounts',    100000, 3500000, 50000, v => Number(v).toLocaleString(), 'Number of active accounts. Ireland: ~3.8m adults, ~5.1m residents.'],
-  ['Fiscal',          'stateRate',      'State borrowing rate (for NPV)', 0.5, 6, 0.25, pctFmt],
-  ['Fiscal',          'gdpGrowth',      'Nominal GDP growth',        1,      8,     0.5,  pctFmt, 'Used to project revenue benchmarks forward.'],
-  ['Fiscal',          'retireAge',      'Retirement age',            60,     70,    1,    numFmt],
-  ['Fiscal',          'pensionOffset',  'Pension offset rate',       0,      30,    1,    pctFmt, 'Only applies if the relevant pension is means-tested (e.g. non-contributory). The Irish State Pension Contributory is NOT means-tested — leave at 0 unless you toggle the means-test assumption.'],
-  ['Fiscal',          'pensionCost',    'Annual state pension cost per person', 5000, 25000, 200, eurFmt],
-  ['Fiscal',          'pensionYears',   'Pension draw years',        5,      35,    1,    numFmt],
-
-  ['Withdrawals',     'withdraw',       'Withdrawal per year',       0,      30000, 500,  eurFmt],
-  ['Withdrawals',     'withdrawStart',  'Withdrawals begin in year', 1,      60,    1,    numFmt, 'TFSA: withdrawals restore room next year. ISA: flexible. Taxable/EU/Norway: triggers tax on embedded gain.'],
-];
-
-// ---------------- params object ----------------
+// ---------------- state ----------------
 
 const state = { ...DEFAULTS };
 
-function getParams() {
-  return { ...state };
-}
+// Non-slider controls that still need diff-badge wrapping. We track them so
+// markChanged() works uniformly across radios, toggles, and sliders.
+const NON_SLIDER_CONTROLS = ['taxMode', 'realTerms', 'pensionMeansTested', 'noUseIncomeTax'];
 
 // ---------------- DOM rendering of inputs ----------------
 
@@ -87,78 +41,86 @@ function buildControls() {
   let html = '';
   let currentSection = '';
 
-  // Tax-mode radio (first, because it gates the tax controls)
+  // Tax-mode radio (first, because it gates the tax controls).
   html += `<div class="section-title">Tax environment (Irish defaults)</div>`;
-  html += `<label style="font-weight:600; color:var(--text); margin-bottom:0.1rem;">Taxable baseline account type</label>
+  html += `<div class="input-wrap" data-id="taxMode">
+    <label style="font-weight:600; color:var(--text); margin-bottom:0.1rem;">Taxable baseline account type</label>
     <div class="radio-row">
       <label><input type="radio" name="taxMode" value="fund" ${state.taxMode==='fund'?'checked':''}> Fund wrapper (exit tax)</label>
       <label><input type="radio" name="taxMode" value="equity" ${state.taxMode==='equity'?'checked':''}> Direct equities (CGT)</label>
     </div>
-    <p class="currency-note">Fund wrapper: 41% exit tax + deemed disposal (no annual dividend tax on accumulating UCITS ETFs). Direct equities: income tax on dividends, CGT on disposals with annual exemption.</p>`;
+    <p class="currency-note">Fund wrapper: 41% exit tax + deemed disposal (no annual dividend tax on accumulating UCITS ETFs). Direct equities: income tax on dividends, CGT on disposals with annual exemption.</p>
+  </div>`;
 
   // Real-terms toggle
-  html += `<div class="toggle-row" style="margin-top:0.8rem;">
-    <label class="toggle"><input type="checkbox" id="realTerms" ${state.realTerms?'checked':''}><span class="slider"></span></label>
-    <label style="font-weight:600; color:var(--text); cursor:pointer;" for="realTerms">Show in real (inflation-adjusted) terms</label>
+  html += `<div class="input-wrap" data-id="realTerms">
+    <div class="toggle-row" style="margin-top:0.8rem;">
+      <label class="toggle"><input type="checkbox" id="realTerms" ${state.realTerms?'checked':''}><span class="slider"></span></label>
+      <label style="font-weight:600; color:var(--text); cursor:pointer;" for="realTerms">Show in real (inflation-adjusted) terms</label>
+    </div>
   </div>`;
 
   // Means-test toggle for pension
-  html += `<div class="toggle-row" style="margin-top:0.5rem;">
-    <label class="toggle"><input type="checkbox" id="pensionMeansTested" ${state.pensionMeansTested?'checked':''}><span class="slider"></span></label>
-    <label style="font-weight:600; color:var(--text); cursor:pointer;" for="pensionMeansTested">Assume pension is means-tested (non-contributory)</label>
-  </div>
-  <p class="currency-note">Irish State Pension Contributory is NOT means-tested, so wrapper wealth does not displace it. Toggle on only if modelling a non-contributory benefit.</p>`;
-
-  // Norway income-tax toggle
-  html += `<div class="toggle-row" style="margin-top:0.5rem;">
-    <label class="toggle"><input type="checkbox" id="noUseIncomeTax" ${state.noUseIncomeTax?'checked':''}><span class="slider"></span></label>
-    <label style="font-weight:600; color:var(--text); cursor:pointer;" for="noUseIncomeTax">Norway: tax excess at marginal income rate (else CGT)</label>
+  html += `<div class="input-wrap" data-id="pensionMeansTested">
+    <div class="toggle-row" style="margin-top:0.5rem;">
+      <label class="toggle"><input type="checkbox" id="pensionMeansTested" ${state.pensionMeansTested?'checked':''}><span class="slider"></span></label>
+      <label style="font-weight:600; color:var(--text); cursor:pointer;" for="pensionMeansTested">Assume pension is means-tested (non-contributory)</label>
+    </div>
+    <p class="currency-note">Irish State Pension Contributory is NOT means-tested, so wrapper wealth does not displace it. Toggle on only if modelling a non-contributory benefit.</p>
   </div>`;
 
-  // Now render sliders, sectioned.
-  for (const row of INPUTS) {
-    const [section, id, label, min, max, step, fmtFn, note, gate] = row;
-    if (section !== currentSection) {
-      html += `<div class="section-title">${section}</div>`;
-      currentSection = section;
+  // Norway income-tax toggle
+  html += `<div class="input-wrap" data-id="noUseIncomeTax">
+    <div class="toggle-row" style="margin-top:0.5rem;">
+      <label class="toggle"><input type="checkbox" id="noUseIncomeTax" ${state.noUseIncomeTax?'checked':''}><span class="slider"></span></label>
+      <label style="font-weight:600; color:var(--text); cursor:pointer;" for="noUseIncomeTax">Norway: tax excess at marginal income rate (else CGT)</label>
+    </div>
+  </div>`;
+
+  // Sliders, grouped by section.
+  for (const inp of INPUTS) {
+    if (inp.section !== currentSection) {
+      html += `<div class="section-title">${inp.section}</div>`;
+      currentSection = inp.section;
     }
-    const v = state[id];
-    const gateAttr = gate ? ` data-gate="${section}"` : '';
-    html += `<div class="input-wrap" data-id="${id}"${gateAttr}>
-      <label for="i_${id}">${label} <span class="val" id="v_${id}">${fmtFn(v)}</span></label>
+    const v = state[inp.id];
+    const gateAttr = inp.gate ? ` data-gate="1"` : '';
+    html += `<div class="input-wrap" data-id="${inp.id}"${gateAttr}>
+      <label for="i_${inp.id}">${inp.label} <span class="val" id="v_${inp.id}">${inp.fmt(v)}</span></label>
       <div class="slider-row">
-        <input type="range" id="i_${id}" min="${min}" max="${max}" step="${step}" value="${v}">
-        <input type="number" id="n_${id}" min="${min}" max="${max}" step="${step}" value="${v}" aria-label="${label} numeric input">
+        <input type="range" id="i_${inp.id}" min="${inp.min}" max="${inp.max}" step="${inp.step}" value="${v}">
+        <input type="number" id="n_${inp.id}" min="${inp.min}" max="${inp.max}" step="${inp.step}" value="${v}" aria-label="${inp.label} numeric input">
       </div>
-      ${note ? `<p class="currency-note">${note}</p>` : ''}
-      <div class="warning-banner" id="warn_${id}"></div>
+      ${inp.note ? `<p class="currency-note">${inp.note}</p>` : ''}
+      <div class="warning-banner" id="warn_${inp.id}"></div>
     </div>`;
   }
 
   host.innerHTML = html;
 }
 
-// Wire up the controls after they're in the DOM.
+// Wire up event handlers after the controls are in the DOM.
 function wireControls() {
-  for (const row of INPUTS) {
-    const [, id, , , , , fmtFn] = row;
-    const slider = $('i_' + id);
-    const num    = $('n_' + id);
-    const valEl  = $('v_' + id);
+  for (const inp of INPUTS) {
+    const slider = $('i_' + inp.id);
+    const num    = $('n_' + inp.id);
+    const valEl  = $('v_' + inp.id);
     if (!slider) continue;
 
+    // Clamp out-of-range typed values to [min, max].
     const sync = (source) => {
-      const v = parseFloat(source.value);
-      if (isNaN(v)) return;
-      state[id] = v;
+      const raw = parseFloat(source.value);
+      if (!Number.isFinite(raw)) return;
+      const v = clamp(raw, inp.min, inp.max);
+      state[inp.id] = v;
       slider.value = num.value = v;
-      valEl.textContent = fmtFn(v);
-      markChanged(id);
-      runSim();
+      valEl.textContent = inp.fmt(v);
+      markChanged(inp.id);
+      scheduleRun();
     };
-    slider.addEventListener('input', () => sync(slider));
-    num.addEventListener('input',    () => sync(num));
-    num.addEventListener('change',   () => sync(num));
+    slider.addEventListener('input',  () => sync(slider));
+    num.addEventListener('input',     () => sync(num));
+    num.addEventListener('change',    () => sync(num));
   }
 
   document.querySelectorAll('input[name="taxMode"]').forEach(r => {
@@ -166,71 +128,57 @@ function wireControls() {
       state.taxMode = document.querySelector('input[name="taxMode"]:checked').value;
       applyGates();
       markChanged('taxMode');
-      runSim();
+      scheduleRun();
     });
   });
 
-  $('realTerms').addEventListener('change', e => {
-    state.realTerms = e.target.checked;
-    markChanged('realTerms');
-    runSim();
-  });
-  $('pensionMeansTested').addEventListener('change', e => {
-    state.pensionMeansTested = e.target.checked;
-    markChanged('pensionMeansTested');
-    runSim();
-  });
-  $('noUseIncomeTax').addEventListener('change', e => {
-    state.noUseIncomeTax = e.target.checked;
-    markChanged('noUseIncomeTax');
-    runSim();
-  });
+  for (const id of ['realTerms', 'pensionMeansTested', 'noUseIncomeTax']) {
+    $(id).addEventListener('change', e => {
+      state[id] = e.target.checked;
+      markChanged(id);
+      scheduleRun();
+    });
+  }
 
   applyGates();
 }
 
 function applyGates() {
-  // Show/hide tax-mode-dependent rows.
+  // Show/hide tax-mode-dependent rows. INPUT_BY_ID is O(1).
   document.querySelectorAll('.input-wrap[data-gate]').forEach(el => {
-    const id = el.dataset.id;
-    const row = INPUTS.find(r => r[1] === id);
-    const gate = row && row[8];
-    el.style.display = (!gate || gate(state)) ? '' : 'none';
+    const inp = INPUT_BY_ID[el.dataset.id];
+    el.style.display = (inp && inp.gate(state)) ? '' : 'none';
   });
 }
 
 function markChanged(id) {
   const wrap = document.querySelector(`.input-wrap[data-id="${id}"]`);
   if (!wrap) return;
-  const isChanged = state[id] !== DEFAULTS[id];
-  wrap.classList.toggle('changed', isChanged);
+  wrap.classList.toggle('changed', state[id] !== DEFAULTS[id]);
 }
 
 function markAllChanged() {
   for (const k of Object.keys(DEFAULTS)) markChanged(k);
 }
 
-// ---------------- presets ----------------
+// ---------------- presets / reset ----------------
 
 function applyPreset(name) {
   const p = PRESETS[name];
   if (!p) return;
   Object.entries(p).forEach(([k, v]) => { state[k] = v; });
   refreshAllControls();
-  runSim();
+  scheduleRun();
 }
 
 function refreshAllControls() {
-  for (const row of INPUTS) {
-    const [, id, , , , , fmtFn] = row;
-    const slider = $('i_' + id);
-    const num    = $('n_' + id);
-    const valEl  = $('v_' + id);
-    if (slider) { slider.value = state[id]; num.value = state[id]; valEl.textContent = fmtFn(state[id]); }
+  for (const inp of INPUTS) {
+    const slider = $('i_' + inp.id);
+    const num    = $('n_' + inp.id);
+    const valEl  = $('v_' + inp.id);
+    if (slider) { slider.value = state[inp.id]; num.value = state[inp.id]; valEl.textContent = inp.fmt(state[inp.id]); }
   }
-  document.querySelectorAll('input[name="taxMode"]').forEach(r => {
-    r.checked = (r.value === state.taxMode);
-  });
+  document.querySelectorAll('input[name="taxMode"]').forEach(r => { r.checked = (r.value === state.taxMode); });
   $('realTerms').checked          = state.realTerms;
   $('pensionMeansTested').checked = state.pensionMeansTested;
   $('noUseIncomeTax').checked     = state.noUseIncomeTax;
@@ -241,7 +189,22 @@ function refreshAllControls() {
 function resetDefaults() {
   Object.assign(state, DEFAULTS);
   refreshAllControls();
-  runSim();
+  scheduleRun();
+}
+
+// ---------------- run coalescing ----------------
+
+// Multiple input events within the same animation frame collapse to one
+// simulation + render. Without this a rapid slider drag could trigger 60+
+// full sim/render cycles per second on a fast monitor.
+let runPending = false;
+function scheduleRun() {
+  if (runPending) return;
+  runPending = true;
+  requestAnimationFrame(() => {
+    runPending = false;
+    runSim();
+  });
 }
 
 // ---------------- chart + tables ----------------
@@ -282,7 +245,11 @@ function runSim() {
     };
   });
 
-  simData = { series, horizon, showReal, inflationRate, labels: Array.from({length: horizon}, (_, i) => `Year ${i+1}`) };
+  simData = {
+    series, horizon, showReal, inflationRate,
+    labels: Array.from({length: horizon}, (_, i) => `Year ${i+1}`),
+    byKey: Object.fromEntries(series.map(s => [s.key, s])),
+  };
 
   renderChart();
   renderSummary();
@@ -292,22 +259,28 @@ function runSim() {
   updateHashURL();
 }
 
+// ---------------- chart ----------------
+
+function chartViewMeta() {
+  const realLabel = simData.showReal ? ' (real)' : '';
+  if (activeChart === 'wealth')  return { dataKey: 'bal',     yLabel: `Net value${realLabel} (€)`,               title: 'Net portfolio value after all taxes and fees' };
+  if (activeChart === 'tax')     return { dataKey: 'cumTax',  yLabel: `Cumulative tax${realLabel} (€)`,          title: 'Total tax paid over time' };
+  if (activeChart === 'annual')  return { dataKey: 'annTax',  yLabel: `Annual tax${realLabel} (€)`,              title: 'Tax cost each year' };
+  return                                  { dataKey: 'contrib', yLabel: `Cumulative contributions${realLabel} (€)`, title: 'Total contributions into each account (capped by allowance rules)' };
+}
+
 function renderChart() {
   if (!simData) return;
   const { labels, series, showReal } = simData;
-  const realLabel = showReal ? ' (real)' : '';
+  const view = chartViewMeta();
 
-  let dataKey, yLabel, title;
-  if (activeChart === 'wealth')       { dataKey = 'bal';     yLabel = `Net value${realLabel} (€)`; title = 'Net portfolio value after all taxes and fees'; }
-  else if (activeChart === 'tax')     { dataKey = 'cumTax';  yLabel = `Cumulative tax${realLabel} (€)`; title = 'Total tax paid over time'; }
-  else if (activeChart === 'annual')  { dataKey = 'annTax';  yLabel = `Annual tax${realLabel} (€)`; title = 'Tax cost each year'; }
-  else                                { dataKey = 'contrib'; yLabel = `Cumulative contributions${realLabel} (€)`; title = 'Total contributions into each account (capped by allowance rules)'; }
-
-  $('chartNote').textContent = title + (showReal ? ' — inflation-adjusted' : ' — nominal');
+  $('chartNote').textContent = view.title + (showReal ? ' — inflation-adjusted' : ' — nominal');
+  const cap = $('chartCaption');
+  if (cap) cap.textContent = `${view.title}, ${showReal ? 'inflation-adjusted' : 'nominal'}, ${labels.length} years. Six lines, one per wrapper.`;
 
   const datasets = series.map(s => ({
     label: s.name,
-    data: s[dataKey],
+    data: s[view.dataKey],
     borderColor: s.color,
     backgroundColor: s.color + '18',
     borderWidth: 2,
@@ -317,7 +290,16 @@ function renderChart() {
     fill: false,
   }));
 
-  if (chart) chart.destroy();
+  // Reuse the Chart instance to avoid the destroy/recreate flicker on every
+  // slider tick. First run creates it; subsequent runs just swap data.
+  if (chart) {
+    chart.data.labels = labels;
+    chart.data.datasets = datasets;
+    chart.options.scales.y.title.text = view.yLabel;
+    chart.update('none');
+    return;
+  }
+
   chart = new Chart($('mainChart'), {
     type: 'line',
     data: { labels, datasets },
@@ -331,7 +313,7 @@ function renderChart() {
       scales: {
         y: {
           ticks: { callback: v => '€' + (v >= 1e6 ? (v/1e6).toFixed(1) + 'M' : v >= 1e3 ? (v/1e3).toFixed(0) + 'k' : v) },
-          title: { display: true, text: yLabel }
+          title: { display: true, text: view.yLabel }
         },
         x: { ticks: { maxTicksLimit: 15 }, title: { display: true, text: 'Year' } }
       }
@@ -339,20 +321,22 @@ function renderChart() {
   });
 }
 
+// ---------------- summary table ----------------
+
 function renderSummary() {
-  const { series, horizon, showReal } = simData;
+  const { series, horizon, showReal, byKey } = simData;
   const deflator = showReal ? Math.pow(1 + state.inflation/100, horizon) : 1;
   $('summaryTitle').textContent = `Summary at end of horizon${showReal ? ' (real terms)' : ''}`;
 
-  const taxableNet = series[0].bal[horizon - 1];
+  const taxableNet = byKey.taxable.bal[horizon - 1];
   $('summaryTable').querySelector('tbody').innerHTML = series.map(s => {
-    const net = s.bal[horizon - 1];
-    const tax = s.cumTax[horizon - 1];
-    const contrib = s.contrib[horizon - 1];
-    const gross = s.grossVal / deflator;
-    const grossGain = gross - contrib;
-    const effRate = grossGain > 0 ? tax / grossGain : 0;
-    const advantage = net - taxableNet;
+    const net      = s.bal[horizon - 1];
+    const tax      = s.cumTax[horizon - 1];
+    const contrib  = s.contrib[horizon - 1];
+    const gross    = s.grossVal / deflator;
+    const grossGain= gross - contrib;
+    const effRate  = grossGain > 0 ? tax / grossGain : 0;
+    const adv      = net - taxableNet;
     return `<tr>
       <td><span class="dot ${s.dot}"></span>${s.name}</td>
       <td>${fmt(contrib)}</td>
@@ -360,25 +344,27 @@ function renderSummary() {
       <td>${fmt(tax)}</td>
       <td><strong>${fmt(net)}</strong></td>
       <td>${pct(effRate)}</td>
-      <td style="color:${advantage >= 0 ? '#059669' : '#dc2626'}">${advantage >= 0 ? '+' : ''}${fmt(advantage)}</td>
+      <td style="color:${adv >= 0 ? '#059669' : '#dc2626'}">${adv >= 0 ? '+' : ''}${fmt(adv)}</td>
     </tr>`;
   }).join('');
 }
 
-function renderFiscal() {
-  const { series, horizon, showReal, inflationRate } = simData;
-  const popAccounts = state.popAccounts;
-  const stateRate = state.stateRate / 100;
-  const pensionOffsetPct = state.pensionOffset / 100;
-  const pensionCost = state.pensionCost;
-  const pensionYears = state.pensionYears;
-  const retireAge = state.retireAge;
-  const startAge = state.startAge;
-  const gdpGrowth = state.gdpGrowth / 100;
-  const meansTested = state.pensionMeansTested;
+// ---------------- fiscal tables ----------------
 
-  const taxableAnnTax = series[0].rawAnnTax;
-  const taxableNet    = series[0].rawBal[horizon - 1];
+function renderFiscal() {
+  const { series, horizon, showReal, inflationRate, byKey } = simData;
+  const popAccounts      = state.popAccounts;
+  const stateRate        = state.stateRate / 100;
+  const pensionOffsetPct = state.pensionOffset / 100;
+  const pensionCost      = state.pensionCost;
+  const pensionYears     = state.pensionYears;
+  const retireAge        = state.retireAge;
+  const startAge         = state.startAge;
+  const gdpGrowth        = state.gdpGrowth / 100;
+  const meansTested      = state.pensionMeansTested;
+
+  const taxableAnnTax = byKey.taxable.rawAnnTax;
+  const taxableNet    = byKey.taxable.rawBal[horizon - 1];
 
   // Pension PV
   const pensionStartYear = Math.max(horizon, retireAge - startAge);
@@ -391,23 +377,21 @@ function renderFiscal() {
   }
   const basePensionPV = meansTested ? pensionPV() : 0;
 
-  const otherSeries = series.slice(1);
+  const otherSeries = series.filter(s => s.key !== 'taxable');
   const fiscalData = otherSeries.map(s => {
-    const annForegone = taxableAnnTax.map((t, i) => t - s.rawAnnTax[i]);
-    const npvForegone = computeNPV(annForegone, stateRate);
+    const annForegone   = taxableAnnTax.map((t, i) => t - s.rawAnnTax[i]);
+    const npvForegone   = computeNPV(annForegone, stateRate);
     const totalForegone = cumulativeReal(annForegone, inflationRate, showReal);
-    const annualised = totalForegone / horizon;
-    const year1 = annForegone[0] || 0;
-    const finalYear = annForegone[horizon - 1] || 0;
-    const gross = s.grossVal / (showReal ? Math.pow(1+inflationRate, horizon) : 1);
+    const annualised    = totalForegone / horizon;
+    const year1         = annForegone[0] || 0;
+    const finalYear     = annForegone[horizon - 1] || 0;
+    const gross         = s.grossVal / (showReal ? Math.pow(1+inflationRate, horizon) : 1);
 
-    // Only credit pension offset if means-tested AND this wrapper raises wealth.
     const wealthRatio = taxableNet > 0 ? s.rawBal[horizon - 1] / taxableNet : 1;
-    const pensionOff = basePensionPV * wealthRatio;
+    const pensionOff  = basePensionPV * wealthRatio;
 
     return {
-      series: s,
-      totalForegone, npvForegone, annualised, year1, finalYear,
+      series: s, totalForegone, npvForegone, annualised, year1, finalYear,
       pctGross: gross > 0 ? totalForegone / gross : 0,
       pensionOff,
     };
@@ -426,12 +410,12 @@ function renderFiscal() {
 
   $('popLabel').textContent = popAccounts.toLocaleString();
   $('aggFiscalTable').querySelector('tbody').innerHTML = fiscalData.map(d => {
-    const aggNPV = d.npvForegone * popAccounts;
-    const aggAnnual = d.annualised * popAccounts;
-    const aggYear1 = d.year1 * popAccounts;
-    const aggFinal = d.finalYear * popAccounts;
-    const aggPension = d.pensionOff * popAccounts;
-    const netCost = aggNPV - aggPension;
+    const aggNPV     = d.npvForegone * popAccounts;
+    const aggAnnual  = d.annualised  * popAccounts;
+    const aggYear1   = d.year1       * popAccounts;
+    const aggFinal   = d.finalYear   * popAccounts;
+    const aggPension = d.pensionOff  * popAccounts;
+    const netCost    = aggNPV - aggPension;
     return `<tr>
       <td><span class="dot ${d.series.dot}"></span>${d.series.name}</td>
       <td style="color:${aggNPV < 0 ? '#059669' : ''}">${fmtBn(aggNPV)}</td>
@@ -449,7 +433,7 @@ function renderFiscal() {
   const INC  = REVENUE_BENCHMARKS.income_tax.value;
   const TOT  = REVENUE_BENCHMARKS.total_tax.value;
   const SPC  = REVENUE_BENCHMARKS.state_pension.value;
-  const CGTf = CGT * grow, INCf = INC * grow, TOTf = TOT * grow, SPCf = SPC * grow;
+  const CGTf = CGT*grow, INCf = INC*grow, TOTf = TOT*grow, SPCf = SPC*grow;
 
   $('anchorTable').querySelector('tbody').innerHTML = fiscalData.flatMap(d => {
     const aggYear1 = d.year1 * popAccounts;
@@ -480,12 +464,10 @@ function renderFiscal() {
 
 // ---------------- sensitivity tornado ----------------
 
-const SENSITIVITY_INPUTS = ['contrib', 'annualReturn', 'fee', 'inflation', 'horizon', 'isaAllow', 'noShieldRate'];
-
 function renderTornado() {
-  const base = simulateAll(state);
-  // Identify the best wrapper at horizon (excluding taxable baseline).
+  // Find the best non-taxable wrapper at horizon for the base case.
   const h = state.horizon - 1;
+  const base = simulateAll(state);
   let bestKey = 'isa', bestVal = -Infinity;
   for (const w of WRAPPERS) {
     if (w.key === 'taxable') continue;
@@ -495,28 +477,31 @@ function renderTornado() {
   const rows = [];
   for (const id of SENSITIVITY_INPUTS) {
     const original = state[id];
-    if (original === 0) continue;
-    const up = original * 1.1, down = original * 0.9;
-    // Round horizon to whole years so we get a valid index.
-    state[id] = id === 'horizon' ? Math.round(up)   : up;
-    const upSim = simulateAll(state)[bestKey];
-    const upVal = upSim.bal[upSim.bal.length - 1];
-    state[id] = id === 'horizon' ? Math.round(down) : down;
-    const downSim = simulateAll(state)[bestKey];
+    if (original === 0 || !Number.isFinite(original)) continue;
+    const inp = INPUT_BY_ID[id];
+    const isInt = inp.step >= 1 && Number.isInteger(inp.step);
+    let up   = clamp(original * 1.1, inp.min, inp.max);
+    let down = clamp(original * 0.9, inp.min, inp.max);
+    if (isInt) { up = Math.round(up); down = Math.round(down); }
+    if (up === down) continue;
+
+    // Override-based — no mutation of `state`.
+    const upSim   = simulateAll(state, { [id]: up   })[bestKey];
+    const downSim = simulateAll(state, { [id]: down })[bestKey];
+    const upVal   = upSim.bal[upSim.bal.length - 1];
     const downVal = downSim.bal[downSim.bal.length - 1];
-    state[id] = original;
-    const swing = Math.abs(upVal - downVal);
-    if (!isFinite(swing)) continue;
-    rows.push({ id, label: INPUTS.find(r => r[1] === id)?.[2] || id, swing });
+    const swing   = Math.abs(upVal - downVal);
+    if (!Number.isFinite(swing)) continue;
+    rows.push({ id, label: inp.label, swing });
   }
   rows.sort((a, b) => b.swing - a.swing);
 
   const max = rows[0]?.swing || 1;
   $('tornado').innerHTML = rows.slice(0, 5).map(r => {
-    const pctBar = (r.swing / max) * 100;
+    const w = (r.swing / max) * 100;
     return `<div class="tornado-row">
       <span class="label">${r.label}</span>
-      <div class="tornado-bar" style="width:${pctBar}%"></div>
+      <div class="tornado-bar" style="width:${w}%"></div>
       <span class="val">${fmtBn(r.swing)}</span>
     </div>`;
   }).join('');
@@ -525,12 +510,15 @@ function renderTornado() {
 // ---------------- trade-offs prose ----------------
 
 function renderTradeoffs() {
-  const { series, horizon, showReal } = simData;
-  const taxableNet = series[0].bal[horizon - 1];
+  const { series, horizon, showReal, byKey } = simData;
+  const taxableNet  = byKey.taxable.bal[horizon - 1];
+  const taxableTax  = byKey.taxable.cumTax[horizon - 1];
+  const isaTax      = byKey.isa.cumTax[horizon - 1];
+  const tfsaTax     = byKey.tfsa.cumTax[horizon - 1];
+  const iskTax      = byKey.isk.cumTax[horizon - 1];
+  const noTax       = byKey.no.cumTax[horizon - 1];
+
   const best = series.reduce((a, b) => b.bal[horizon-1] > a.bal[horizon-1] ? b : a);
-  const iskTax = series[3].cumTax[horizon - 1];
-  const noTax  = series[4].cumTax[horizon - 1];
-  const taxableTax = series[0].cumTax[horizon - 1];
   const termsLabel = showReal ? ' (real terms)' : '';
   const taxMode = state.taxMode;
   const feeVal = state.fee;
@@ -556,8 +544,8 @@ function renderTradeoffs() {
   else                html += `At ${netR.toFixed(1)}% net vs ${iskRate}% notional, the investor is <em>overtaxed</em> relative to actual gains.${iskTax > taxableTax ? ' <strong>The ISK actually raises more revenue than the taxable baseline here.</strong>' : ''}</p>`;
 
   html += `<p><strong>Exchequer perspective:</strong> `;
-  const isaForegone  = taxableTax - series[1].cumTax[horizon-1];
-  const tfsaForegone = taxableTax - series[2].cumTax[horizon-1];
+  const isaForegone  = taxableTax - isaTax;
+  const tfsaForegone = taxableTax - tfsaTax;
   const noForegone   = taxableTax - noTax;
   html += `ISA costs the state ${fmt(isaForegone)}; TFSA ${fmt(tfsaForegone)}; Norway shielding ${fmt(noForegone)} per investor. `;
   if (iskTax > taxableTax) html += `The ISK <em>raises</em> ${fmt(iskTax - taxableTax)} more than the taxable baseline.`;
@@ -586,41 +574,57 @@ function renderTradeoffs() {
 
 // ---------------- share / persist URL ----------------
 
+// Only serialise parameters that differ from defaults — keeps shared links
+// short and survives future schema additions (any unknown key in the hash
+// will simply be ignored on load).
 function updateHashURL() {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(state)) {
+    if (v === DEFAULTS[k]) continue;
     params.set(k, typeof v === 'boolean' ? (v ? '1' : '0') : v);
   }
-  // Replace without polluting history.
-  history.replaceState(null, '', '#' + params.toString());
+  const hash = params.toString();
+  history.replaceState(null, '', hash ? '#' + hash : location.pathname);
 }
 
 function loadFromHash() {
   if (!location.hash || location.hash.length < 2) return;
   try {
     const params = new URLSearchParams(location.hash.slice(1));
+    let unknown = [];
     params.forEach((raw, k) => {
-      if (!(k in DEFAULTS)) return;
+      if (!(k in DEFAULTS)) { unknown.push(k); return; }
       const def = DEFAULTS[k];
-      if (typeof def === 'boolean')      state[k] = raw === '1' || raw === 'true';
+      if      (typeof def === 'boolean') state[k] = raw === '1' || raw === 'true';
       else if (typeof def === 'number')  state[k] = parseFloat(raw);
       else                                state[k] = raw;
     });
-  } catch (e) { /* ignore bad hash */ }
+    if (unknown.length) console.warn('SIA: ignored unknown URL hash keys:', unknown);
+  } catch (e) {
+    console.warn('SIA: failed to parse URL hash:', e);
+  }
 }
 
 // ---------------- CSV export ----------------
+
+// Quote CSV fields that contain commas, quotes, or newlines. None of our
+// wrapper names trigger this today, but future-proof anyway.
+function csvField(v) {
+  const s = String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
 
 function downloadCSV() {
   if (!simData) return;
   const { series, horizon } = simData;
   const headers = ['Year'];
   for (const w of WRAPPERS) headers.push(`${w.name} balance`, `${w.name} cumulative tax`);
-  const rows = [headers.join(',')];
+  const rows = [headers.map(csvField).join(',')];
   for (let y = 0; y < horizon; y++) {
     const row = [y + 1];
     for (const s of series) row.push(s.rawBal[y].toFixed(2), s.rawCumTax[y].toFixed(2));
-    rows.push(row.join(','));
+    rows.push(row.map(csvField).join(','));
   }
   const csv = rows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -635,7 +639,6 @@ function downloadCSV() {
 // ---------------- cite-this widget ----------------
 
 function buildCitation() {
-  // Short hash of the config for traceability.
   const cfg = JSON.stringify(state);
   let hash = 0;
   for (let i = 0; i < cfg.length; i++) hash = (hash * 31 + cfg.charCodeAt(i)) | 0;
@@ -660,7 +663,34 @@ function flashMsg(text) {
   setTimeout(() => m.classList.remove('show'), 2000);
 }
 
-// ---------------- wire buttons ----------------
+// ---------------- tabs (with WAI-ARIA arrow-key nav) ----------------
+
+function wireTabs() {
+  const tabs = Array.from(document.querySelectorAll('button.tab'));
+  tabs.forEach((t, idx) => {
+    t.addEventListener('click', () => activateTab(t));
+    t.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      let next = idx;
+      if      (e.key === 'ArrowLeft')  next = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+      else if (e.key === 'Home')       next = 0;
+      else if (e.key === 'End')        next = tabs.length - 1;
+      tabs[next].focus();
+      activateTab(tabs[next]);
+    });
+  });
+}
+
+function activateTab(t) {
+  document.querySelectorAll('button.tab').forEach(x => x.setAttribute('aria-selected', 'false'));
+  t.setAttribute('aria-selected', 'true');
+  activeChart = t.dataset.chart;
+  renderChart();
+}
+
+// ---------------- buttons / global wiring ----------------
 
 function wireGlobal() {
   document.querySelectorAll('.preset-btn').forEach(btn => {
@@ -668,15 +698,7 @@ function wireGlobal() {
   });
   $('resetBtn').addEventListener('click', resetDefaults);
 
-  // Tab buttons with ARIA
-  document.querySelectorAll('button.tab').forEach(t => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('button.tab').forEach(x => x.setAttribute('aria-selected', 'false'));
-      t.setAttribute('aria-selected', 'true');
-      activeChart = t.dataset.chart;
-      renderChart();
-    });
-  });
+  wireTabs();
 
   $('shareBtn').addEventListener('click', () => {
     navigator.clipboard?.writeText(location.href).then(() => flashMsg('Link copied'));
