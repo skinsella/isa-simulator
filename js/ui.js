@@ -256,6 +256,7 @@ function runSim() {
   renderFiscal();
   renderTornado();
   renderTradeoffs();
+  renderBrief();
   updateHashURL();
 }
 
@@ -439,10 +440,14 @@ function renderFiscal() {
     const aggYear1 = d.year1 * popAccounts;
     const aggFinal = d.finalYear * popAccounts;
     return [
+      // Negative cost = wrapper raises MORE revenue than the baseline in
+      // this year (e.g. Norway after the fund wrapper's deemed-disposal
+      // pre-payments have eaten the basis). Display as a revenue-gain in
+      // green to avoid the visual "cost" confusion.
       `<tr>
         <td rowspan="2"><span class="dot ${d.series.dot}"></span>${d.series.name}</td>
         <td>Year 1</td>
-        <td>${fmtBn(aggYear1)}</td>
+        <td style="color:${aggYear1 < 0 ? '#059669' : ''}">${aggYear1 < 0 ? '+' + fmtBn(-aggYear1) : fmtBn(aggYear1)}</td>
         <td>${pct(aggYear1/CGT)}</td>
         <td>${pct(aggYear1/INC)}</td>
         <td>${pct(aggYear1/TOT)}</td>
@@ -450,7 +455,7 @@ function renderFiscal() {
       </tr>`,
       `<tr>
         <td>Year ${horizon}</td>
-        <td>${fmtBn(aggFinal)}</td>
+        <td style="color:${aggFinal < 0 ? '#059669' : ''}">${aggFinal < 0 ? '+' + fmtBn(-aggFinal) : fmtBn(aggFinal)}</td>
         <td>${pct(aggFinal/CGTf)}</td>
         <td>${pct(aggFinal/INCf)}</td>
         <td>${pct(aggFinal/TOTf)}</td>
@@ -492,9 +497,18 @@ function renderTornado() {
     const downVal = downSim.bal[downSim.bal.length - 1];
     const swing   = Math.abs(upVal - downVal);
     if (!Number.isFinite(swing)) continue;
+    // Drop rows with no effect — happens for inflation in nominal mode,
+    // for shielding rate when there's no realised gain, etc. Threshold
+    // is €1 so floating-point noise doesn't clutter the chart.
+    if (swing < 1) continue;
     rows.push({ id, label: inp.label, swing });
   }
   rows.sort((a, b) => b.swing - a.swing);
+
+  if (!rows.length) {
+    $('tornado').innerHTML = `<p class="currency-note" style="margin:0;">No inputs move the best-wrapper net wealth under the current configuration.</p>`;
+    return;
+  }
 
   const max = rows[0]?.swing || 1;
   $('tornado').innerHTML = rows.slice(0, 5).map(r => {
@@ -570,6 +584,94 @@ function renderTradeoffs() {
   }
 
   $('tradeoffs').innerHTML = html;
+}
+
+// ---------------- policy brief ----------------
+//
+// A compact, screenshot- / print-friendly one-pager summarising the
+// headline finding under the current configuration. Suitable for pasting
+// into a slide deck or a department memo.
+
+function renderBrief() {
+  const { series, horizon, showReal, byKey } = simData;
+  const popAccounts = state.popAccounts;
+  const stateRate = state.stateRate / 100;
+
+  const taxableNet = byKey.taxable.bal[horizon - 1];
+  const taxableTax = byKey.taxable.cumTax[horizon - 1];
+
+  // Best & worst for the investor (excluding the baseline).
+  const nonBaseline = series.filter(s => s.key !== 'taxable');
+  const best  = nonBaseline.reduce((a, b) => b.bal[horizon-1] > a.bal[horizon-1] ? b : a);
+  const worst = nonBaseline.reduce((a, b) => b.bal[horizon-1] < a.bal[horizon-1] ? b : a);
+
+  // Aggregate fiscal cost (NPV foregone, summed across non-baseline wrappers).
+  const fiscalRows = nonBaseline.map(s => {
+    const annForegone = byKey.taxable.rawAnnTax.map((t, i) => t - s.rawAnnTax[i]);
+    const npv = computeNPV(annForegone, stateRate);
+    return { key: s.key, name: s.name, dot: s.dot,
+             net: s.bal[horizon-1],
+             advantage: s.bal[horizon-1] - taxableNet,
+             npvForegone: npv,
+             aggregate: npv * popAccounts };
+  });
+
+  const assumptions = [
+    `Investor: €${state.contrib.toLocaleString()}/yr contribution${state.contribGrowth ? `, +${state.contribGrowth}%/yr growth` : ''}, ${horizon}-year horizon (age ${state.startAge}→${state.startAge+horizon}).`,
+    `Markets: ${state.annualReturn}% nominal return, ${state.divYield}% dividend yield, ${state.fee}% fee, ${state.inflation}% inflation.`,
+    `Baseline: ${state.taxMode === 'fund' ? `Irish fund wrapper (${state.exitTax}% exit, ${state.deemedYrs}-yr deemed disposal)` : `Direct equities (${state.incTax}% income, ${state.cgt}% CGT, €${state.cgtExempt} exemption)`}.`,
+    `Population: ${popAccounts.toLocaleString()} accounts. NPV at ${state.stateRate}% state rate.`,
+  ];
+
+  const briefHtml = `
+    <p class="brief-headline">
+      Under these assumptions, <strong>${best.name}</strong> leaves the investor
+      <strong>${fmt(best.bal[horizon-1] - taxableNet)}</strong>
+      ${best.bal[horizon-1] >= taxableNet ? 'better off' : 'worse off'}
+      than the Irish baseline at year ${horizon}${showReal ? ' (real terms)' : ''}.
+      Aggregate NPV foregone vs baseline:
+      <strong>${fmtBn(fiscalRows.find(r => r.key === best.key).aggregate)}</strong>
+      across ${popAccounts.toLocaleString()} accounts.
+    </p>
+
+    <table class="summary-table brief-table" style="margin-bottom:0.75rem;">
+      <thead><tr>
+        <th>Wrapper</th>
+        <th>Net wealth @ y${horizon}</th>
+        <th>vs Taxable</th>
+        <th>Aggregate NPV foregone</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="dot dot-tax"></span>Taxable (Irish baseline)</td>
+          <td>${fmt(taxableNet)}</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>
+        ${fiscalRows.map(r => `
+          <tr>
+            <td><span class="dot ${r.dot}"></span>${r.name}</td>
+            <td><strong>${fmt(r.net)}</strong></td>
+            <td style="color:${r.advantage >= 0 ? '#059669' : '#dc2626'}">${r.advantage >= 0 ? '+' : ''}${fmt(r.advantage)}</td>
+            <td style="color:${r.aggregate < 0 ? '#059669' : ''}">${fmtBn(r.aggregate)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:0.5rem;">Assumptions</h3>
+    <ul style="font-size:0.82rem; margin: 0.2rem 0 0.75rem 1.2rem; line-height: 1.5;">
+      ${assumptions.map(a => `<li>${a}</li>`).join('')}
+    </ul>
+
+    <p class="brief-footer">
+      Lifetime SIA Simulator v${MODEL_VERSION} (${MODEL_DATE}).
+      Live tool: <a href="https://skinsella.github.io/isa-simulator/">skinsella.github.io/isa-simulator</a>.
+      Source: <a href="https://github.com/skinsella/isa-simulator">github.com/skinsella/isa-simulator</a>.
+      Methodology: <a href="METHODS.md">METHODS.md</a>.
+    </p>
+  `;
+  $('briefBody').innerHTML = briefHtml;
 }
 
 // ---------------- share / persist URL ----------------
@@ -705,6 +807,16 @@ function wireGlobal() {
   });
   $('csvBtn').addEventListener('click', downloadCSV);
   $('citeBtn').addEventListener('click', showCitation);
+  $('printBriefBtn').addEventListener('click', () => {
+    document.body.classList.add('printing-brief');
+    // requestAnimationFrame so the layout switch completes before window.print
+    requestAnimationFrame(() => {
+      window.print();
+      // Restore after a tick — afterprint event isn't reliable across all browsers.
+      setTimeout(() => document.body.classList.remove('printing-brief'), 100);
+    });
+  });
+  window.addEventListener('afterprint', () => document.body.classList.remove('printing-brief'));
 
   $('footerVersion').textContent = `SIA Simulator v${MODEL_VERSION} (${MODEL_DATE})`;
 }

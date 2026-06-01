@@ -369,3 +369,74 @@ footer a { color: var(--muted); }
   .grid-2 { grid-template-columns: 1fr; }
   body { padding: 0.75rem; }
 }
+
+/* ---------- Policy brief styling ---------- */
+
+.policy-brief {
+  border: 2px solid var(--text);
+}
+.brief-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+.brief-headline {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: #f8fafc;
+  border-left: 4px solid var(--no);
+  border-radius: 4px;
+}
+.brief-table th { background: #f8fafc; }
+.brief-footer {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+}
+.brief-footer a { color: var(--muted); }
+
+/* ---------- Print rules ---------- */
+
+@media print {
+  body { padding: 1rem; background: white; max-width: none; }
+  .no-print, .preset-btn, .action-btn, footer, h1, .subtitle,
+  .model-cards, .grid-2 > div:first-child, .card:not(.policy-brief) {
+    display: none !important;
+  }
+  .grid, .grid-2, .charts-area { display: block !important; width: 100% !important; }
+  .grid-2 > div { width: 100% !important; }
+  .policy-brief {
+    border: 0; padding: 0; margin: 0;
+    width: 100% !important;
+    max-width: none !important;
+    page-break-inside: avoid;
+  }
+  .brief-headline { background: white; border-left: 4px solid #000; }
+  .summary-table { font-size: 0.78rem; }
+  a { color: #000; text-decoration: underline; }
+}
+
+/* When the user clicks the dedicated "Print brief" button, the same rules
+   apply for screen rendering too — useful for visual preview before print. */
+body.printing-brief .no-print,
+body.printing-brief .preset-btn,
+body.printing-brief .action-btn,
+body.printing-brief footer,
+body.printing-brief h1,
+body.printing-brief .subtitle,
+body.printing-brief .model-cards,
+body.printing-brief .grid-2 > div:first-child,
+body.printing-brief .card:not(.policy-brief) {
+  display: none !important;
+}
+body.printing-brief .grid,
+body.printing-brief .grid-2,
+body.printing-brief .charts-area { display: block !important; width: 100% !important; }
+body.printing-brief .grid-2 > div { width: 100% !important; }

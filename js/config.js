@@ -1,8 +1,8 @@
 // Lifetime SIA Simulator — configuration, benchmarks, defaults, input schema.
 // All money values in EUR unless noted.
 
-export const MODEL_VERSION = '1.2.0';
-export const MODEL_DATE = '2026-05-24';
+export const MODEL_VERSION = '1.3.0';
+export const MODEL_DATE = '2026-06-02';
 
 // ---------------- formatters (shared with UI) ----------------
 

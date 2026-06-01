@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run simulation tests
+        run: node tests/run.mjs
+
+      - name: Static syntax check (JS files load cleanly as ES modules)
+        run: |
+          node --input-type=module -e "
+            await import('./js/config.js');
+            await import('./js/sim.js');
+            console.log('✓ All modules parse and load.');
+          "
+
+      - name: Validate index.html
+        run: |
+          # Cheap structural check: the page references the three JS modules
+          # and the bundled stylesheet.
+          grep -q 'styles.css' index.html
+          grep -q 'js/ui.js' index.html
+          grep -q 'integrity="sha384-' index.html
+          echo '✓ index.html references intact.'

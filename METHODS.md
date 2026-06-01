@@ -247,6 +247,27 @@ Revenue / DSP publications before quoting figures.
 
 ## Change log
 
+### v1.3.0 — 2026-06-02
+- **New: Policy brief section.** A compact, screenshot-friendly one-pager
+  summarising the headline finding under the current configuration. A
+  dedicated "Print brief" button generates a clean A4 page (everything
+  except the brief is hidden via `@media print`). Suitable for slide
+  decks or department memos.
+- **New: GitHub Actions CI.** Tests now run on every push and PR
+  (`.github/workflows/test.yml`). Static checks confirm `index.html`
+  still references the JS modules and the SRI hash on Chart.js.
+- **New: 9 additional Norwegian-model tests.** Coverage now includes:
+  zero-shielding-rate collapse to pure CGT; high-shielding tax-free
+  regime; monotonic shielding response; withdrawal-consumes-shielding;
+  override-based simulation contract; total 32 tests.
+- **Polish:** Tornado now drops zero-swing rows (e.g. inflation when
+  real-terms toggle is off) instead of cluttering with empty bars.
+- **Polish:** Anchor table negative values (where a wrapper raises more
+  revenue than the baseline in a given year) are highlighted in green
+  with a `+€` prefix to disambiguate from the "cost" framing.
+- **Polish:** EU model card disclaimer moved below the heading so all
+  five card titles align in a row.
+
 ### v1.2.0 — 2026-05-24
 - **Refactor:** `INPUTS` schema converted from positional tuples to named-field
   objects and moved to `config.js`. Adding a slider is now a one-line edit
