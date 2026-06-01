@@ -48,8 +48,11 @@ python3 -m http.server 8000
 Closed-form sanity checks for each wrapper:
 
 ```bash
-node tests/run.mjs
+npm test     # equivalent to: node tests/run.mjs
 ```
+
+Tests run automatically on every push and PR via GitHub Actions
+([badge](https://github.com/skinsella/isa-simulator/actions/workflows/test.yml)).
 
 These compare simulated outputs against analytical formulas (e.g. UK ISA =
 geometric annuity FV) and pin golden numbers for the four presets. Any change

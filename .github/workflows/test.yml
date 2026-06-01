@@ -19,7 +19,7 @@ jobs:
           node-version: '20'
 
       - name: Run simulation tests
-        run: node tests/run.mjs
+        run: npm test
 
       - name: Static syntax check (JS files load cleanly as ES modules)
         run: |
